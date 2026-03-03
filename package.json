@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typechain": "typechain --target ethers-v6 --out-dir types/contracts 'contracts/*.json'"
   },
   "dependencies": {
     "next": "16.1.6",
@@ -15,12 +16,15 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@typechain/ethers-v6": "^0.5.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "ethers": "^6.16.0",
     "tailwindcss": "^4",
+    "typechain": "^8.3.2",
     "typescript": "^5"
   }
 }
