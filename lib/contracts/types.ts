@@ -1,9 +1,7 @@
-import type { InterfaceAbi } from "ethers";
-
 export interface ContractConfig {
   name: string;
   slug: string;
-  factory: { abi: InterfaceAbi; connect: (address: string, runner?: any) => any };
+  factory: { abi: readonly any[]; connect: (address: string, runner?: any) => any };
   addressEnv: string;
   adminKeyEnv: string | null;
   adminAddressEnv: string | null;

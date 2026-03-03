@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -8,13 +8,14 @@ import { Separator } from "@/components/ui/separator";
 import { FunctionCard } from "./function-card";
 import { parseAbi } from "@/lib/contracts/abi-parser";
 import { getContractInfo, callReadFunction } from "@/lib/contracts/actions";
-import type { ContractConfig } from "@/lib/contracts/types";
+import { contracts } from "@/lib/contracts/registry";
 
 interface ContractPageProps {
-  config: ContractConfig;
+  slug: string;
 }
 
-export function ContractPage({ config }: ContractPageProps) {
+export function ContractPage({ slug }: ContractPageProps) {
+  const config = contracts[slug];
   const [overrideKey, setOverrideKey] = useState("");
   const [info, setInfo] = useState<{
     address: string;
@@ -23,22 +24,33 @@ export function ContractPage({ config }: ContractPageProps) {
   } | null>(null);
   const [decimals, setDecimals] = useState<number | undefined>(undefined);
 
-  const { readFunctions, writeFunctions } = parseAbi(config.factory.abi);
+  const { readFunctions, writeFunctions } = useMemo(
+    () => parseAbi(config.factory.abi),
+    [config]
+  );
 
   useEffect(() => {
-    getContractInfo(config.slug).then(setInfo);
-  }, [config.slug]);
+    getContractInfo(slug).then(setInfo);
+  }, [slug]);
 
   useEffect(() => {
     const hasDecimalsFunc = readFunctions.some((f) => f.name === "decimals");
     if (hasDecimalsFunc) {
-      callReadFunction(config.slug, "decimals", []).then((res) => {
+      callReadFunction(slug, "decimals", []).then((res) => {
         if (res.success) {
           setDecimals(Number(res.result));
         }
       });
     }
-  }, [config.slug, readFunctions]);
+  }, [slug, readFunctions]);
+
+  if (!config) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-zinc-500">Unknown contract: {slug}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -98,7 +110,7 @@ export function ContractPage({ config }: ContractPageProps) {
               {readFunctions.map((fn) => (
                 <FunctionCard
                   key={fn.name}
-                  contractSlug={config.slug}
+                  contractSlug={slug}
                   fn={fn}
                   overrideKey={overrideKey}
                   decimals={decimals}
@@ -122,7 +134,7 @@ export function ContractPage({ config }: ContractPageProps) {
               {writeFunctions.map((fn) => (
                 <FunctionCard
                   key={fn.name}
-                  contractSlug={config.slug}
+                  contractSlug={slug}
                   fn={fn}
                   overrideKey={overrideKey}
                   decimals={decimals}

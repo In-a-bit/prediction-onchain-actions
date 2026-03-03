@@ -105,8 +105,8 @@ function formatResult(result: any): string {
   if (typeof result === "boolean") return result.toString();
   if (typeof result === "string") return result;
   if (Array.isArray(result)) {
-    if (result.toObject) {
-      return JSON.stringify(result.toObject(), bigintReplacer, 2);
+    if ("toObject" in result && typeof (result as any).toObject === "function") {
+      return JSON.stringify((result as any).toObject(), bigintReplacer, 2);
     }
     return JSON.stringify(result, bigintReplacer, 2);
   }
