@@ -53,7 +53,7 @@ export function ContractPage({ slug }: ContractPageProps) {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="text-2xl font-bold">{config.name}</h2>
         <p className="mt-1 text-sm text-zinc-500">{config.description}</p>
