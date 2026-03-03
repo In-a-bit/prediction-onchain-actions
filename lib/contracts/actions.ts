@@ -1,6 +1,6 @@
 "use server";
 
-import { JsonRpcProvider, Wallet } from "ethers";
+import { JsonRpcProvider, Wallet, Interface } from "ethers";
 import { contracts } from "./registry";
 
 function getProvider() {
@@ -80,6 +80,23 @@ export async function callWriteFunction(
       txHash: receipt.hash,
       result: `Transaction confirmed in block ${receipt.blockNumber}`,
     };
+  } catch (error: any) {
+    return { success: false, error: extractErrorMessage(error) };
+  }
+}
+
+export async function encodeFunctionData(
+  contractSlug: string,
+  functionName: string,
+  args: any[]
+): Promise<{ success: true; data: string } | { success: false; error: string }> {
+  try {
+    const config = contracts[contractSlug];
+    if (!config) return { success: false, error: `Unknown contract: ${contractSlug}` };
+
+    const iface = new Interface(config.factory.abi);
+    const encoded = iface.encodeFunctionData(functionName, args);
+    return { success: true, data: encoded };
   } catch (error: any) {
     return { success: false, error: extractErrorMessage(error) };
   }

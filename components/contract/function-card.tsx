@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InputField } from "./input-field";
 import { OutputDisplay } from "./output-display";
-import { callReadFunction, callWriteFunction } from "@/lib/contracts/actions";
+import { callReadFunction, callWriteFunction, encodeFunctionData } from "@/lib/contracts/actions";
 import { isNumericType } from "@/lib/contracts/abi-parser";
 import type { ParsedFunction, FunctionResult } from "@/lib/contracts/types";
 
@@ -22,6 +22,9 @@ export function FunctionCard({ contractSlug, fn, overrideKey, decimals }: Functi
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [result, setResult] = useState<FunctionResult>({ status: "idle" });
   const [isPending, startTransition] = useTransition();
+  const [encodedData, setEncodedData] = useState<string | null>(null);
+  const [encodeError, setEncodeError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const updateInput = (paramName: string, value: string) => {
     setInputValues((prev) => ({ ...prev, [paramName]: value }));
@@ -75,6 +78,28 @@ export function FunctionCard({ contractSlug, fn, overrideKey, decimals }: Functi
     });
   };
 
+  const encode = () => {
+    setEncodedData(null);
+    setEncodeError(null);
+    setCopied(false);
+    startTransition(async () => {
+      const args = buildArgs();
+      const res = await encodeFunctionData(contractSlug, fn.name, args);
+      if (res.success) {
+        setEncodedData(res.data);
+      } else {
+        setEncodeError(res.error);
+      }
+    });
+  };
+
+  const copyToClipboard = async () => {
+    if (!encodedData) return;
+    await navigator.clipboard.writeText(encodedData);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const mutabilityColor = fn.isRead
     ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
     : "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
@@ -104,15 +129,53 @@ export function FunctionCard({ contractSlug, fn, overrideKey, decimals }: Functi
             />
           ))}
 
-          <Button
-            size="sm"
-            onClick={execute}
-            disabled={isPending}
-            className="mt-2 w-fit"
-            variant={fn.isRead ? "secondary" : "default"}
-          >
-            {isPending ? "Executing..." : fn.isRead ? "Query" : "Send Transaction"}
-          </Button>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={execute}
+              disabled={isPending}
+              variant={fn.isRead ? "secondary" : "default"}
+            >
+              {isPending ? "Executing..." : fn.isRead ? "Query" : "Send Transaction"}
+            </Button>
+
+            {!fn.isRead && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={encode}
+                disabled={isPending}
+              >
+                Encode
+              </Button>
+            )}
+          </div>
+
+          {/* Encoded calldata display */}
+          {encodedData && (
+            <div className="mt-2 rounded border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs font-medium text-zinc-500">Calldata</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={copyToClipboard}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+              <pre className="max-h-24 overflow-auto break-all font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                {encodedData}
+              </pre>
+            </div>
+          )}
+
+          {encodeError && (
+            <div className="mt-2 rounded bg-red-50 p-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+              Encode error: {encodeError}
+            </div>
+          )}
 
           <OutputDisplay result={result} decimals={decimals} />
 
