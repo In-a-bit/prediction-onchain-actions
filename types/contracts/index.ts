@@ -3,6 +3,7 @@
 /* eslint-disable */
 export type { CTFExchange } from "./CTFExchange";
 export type { ConditionalTokens } from "./ConditionalTokens";
+export type { Erc20Abi } from "./Erc20Abi";
 export type { FeeModule } from "./FeeModule";
 export type { ManagedOptimisticOracleV2Abi } from "./ManagedOptimisticOracleV2Abi";
 export type { OracleWhitelistAbi } from "./OracleWhitelistAbi";
@@ -10,6 +11,7 @@ export type { ProxyWalletFactoryAbi } from "./ProxyWalletFactoryAbi";
 export * as factories from "./factories";
 export { ConditionalTokens__factory } from "./factories/ConditionalTokens__factory";
 export { CTFExchange__factory } from "./factories/CTFExchange__factory";
+export { Erc20Abi__factory } from "./factories/Erc20Abi__factory";
 export { FeeModule__factory } from "./factories/FeeModule__factory";
 export { ManagedOptimisticOracleV2Abi__factory } from "./factories/ManagedOptimisticOracleV2Abi__factory";
 export { OracleWhitelistAbi__factory } from "./factories/OracleWhitelistAbi__factory";

@@ -3,6 +3,7 @@
 /* eslint-disable */
 export { CTFExchange__factory } from "./CTFExchange__factory";
 export { ConditionalTokens__factory } from "./ConditionalTokens__factory";
+export { Erc20Abi__factory } from "./Erc20Abi__factory";
 export { FeeModule__factory } from "./FeeModule__factory";
 export { ManagedOptimisticOracleV2Abi__factory } from "./ManagedOptimisticOracleV2Abi__factory";
 export { OracleWhitelistAbi__factory } from "./OracleWhitelistAbi__factory";
