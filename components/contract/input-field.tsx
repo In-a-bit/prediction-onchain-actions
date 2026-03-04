@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import type { ParsedParam } from "@/lib/contracts/types";
-import { isNumericType, isTupleType, isArrayType } from "@/lib/contracts/abi-parser";
+import { isNumericType, isTupleType, isTupleArrayType, isArrayType } from "@/lib/contracts/abi-parser";
 import { parseUnits } from "ethers";
 
 interface InputFieldProps {
@@ -18,6 +18,10 @@ interface InputFieldProps {
 
 export function InputField({ param, value, onChange, decimals }: InputFieldProps) {
   const [readable, setReadable] = useState(false);
+
+  if (isTupleArrayType(param.type) && param.components) {
+    return <TupleArrayInput param={param} value={value} onChange={onChange} decimals={decimals} />;
+  }
 
   if (isTupleType(param.type) && param.components) {
     return <TupleInput param={param} value={value} onChange={onChange} decimals={decimals} />;
@@ -125,6 +129,66 @@ function TupleInput({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+function TupleArrayInput({
+  param,
+  value,
+  onChange,
+  decimals,
+}: InputFieldProps & { param: ParsedParam }) {
+  const items: Record<string, string>[] = (() => {
+    try { return JSON.parse(value || "[]"); }
+    catch { return []; }
+  })();
+
+  const addItem = () => {
+    const empty: Record<string, string> = {};
+    param.components?.forEach((c) => { empty[c.name] = ""; });
+    onChange(JSON.stringify([...items, empty]));
+  };
+
+  const removeItem = (idx: number) => {
+    onChange(JSON.stringify(items.filter((_, i) => i !== idx)));
+  };
+
+  const updateItem = (idx: number, updated: Record<string, string>) => {
+    const copy = [...items];
+    copy[idx] = updated;
+    onChange(JSON.stringify(copy));
+  };
+
+  return (
+    <div className="rounded border border-zinc-200 p-3 dark:border-zinc-700">
+      <Label className="mb-2 block text-xs font-semibold text-zinc-600">
+        {param.name || "struct[]"} ({param.internalType || "tuple[]"})
+      </Label>
+      {items.map((item, idx) => (
+        <div key={idx} className="mb-2 rounded border border-zinc-300 p-2 dark:border-zinc-600">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs text-zinc-400">[{idx}]</span>
+            <Button variant="ghost" size="sm" className="h-5 px-2 text-xs" onClick={() => removeItem(idx)}>
+              x
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {param.components?.map((comp) => (
+              <InputField
+                key={comp.name}
+                param={comp}
+                value={item[comp.name] || ""}
+                onChange={(v) => updateItem(idx, { ...item, [comp.name]: v })}
+                decimals={isNumericType(comp.type) ? decimals : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" onClick={addItem} className="mt-1">
+        + Add {param.internalType?.replace("[]", "") || "struct"}
+      </Button>
     </div>
   );
 }

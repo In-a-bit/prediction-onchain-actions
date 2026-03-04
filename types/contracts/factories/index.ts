@@ -8,3 +8,4 @@ export { FeeModule__factory } from "./FeeModule__factory";
 export { ManagedOptimisticOracleV2Abi__factory } from "./ManagedOptimisticOracleV2Abi__factory";
 export { OracleWhitelistAbi__factory } from "./OracleWhitelistAbi__factory";
 export { ProxyWalletFactoryAbi__factory } from "./ProxyWalletFactoryAbi__factory";
+export { RelayHubAbi__factory } from "./RelayHubAbi__factory";

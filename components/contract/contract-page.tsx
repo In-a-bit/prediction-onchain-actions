@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { FunctionCard } from "./function-card";
 import { parseAbi } from "@/lib/contracts/abi-parser";
 import { getContractInfo, callReadFunction } from "@/lib/contracts/actions";
 import { contracts } from "@/lib/contracts/registry";
+import { computeAddress } from "ethers";
 
 interface ContractPageProps {
   slug: string;
@@ -17,6 +18,7 @@ interface ContractPageProps {
 export function ContractPage({ slug }: ContractPageProps) {
   const config = contracts[slug];
   const [overrideKey, setOverrideKey] = useState("");
+  const [overrideAddress, setOverrideAddress] = useState<string | null>(null);
   const [info, setInfo] = useState<{
     address: string;
     adminAddress: string | null;
@@ -91,9 +93,25 @@ export function ContractPage({ slug }: ContractPageProps) {
             type="password"
             placeholder="0x... (leave empty to use admin key from .env)"
             value={overrideKey}
-            onChange={(e) => setOverrideKey(e.target.value)}
+            onChange={(e) => {
+              const key = e.target.value;
+              setOverrideKey(key);
+              try {
+                setOverrideAddress(key ? computeAddress(key) : null);
+              } catch {
+                setOverrideAddress(null);
+              }
+            }}
             className="mt-1 font-mono text-sm"
           />
+          {overrideAddress && (
+            <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+              <span>Address:</span>
+              <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono dark:bg-zinc-800">
+                {overrideAddress}
+              </code>
+            </div>
+          )}
         </div>
       </div>
 

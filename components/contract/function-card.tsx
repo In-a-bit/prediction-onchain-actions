@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { InputField } from "./input-field";
 import { OutputDisplay } from "./output-display";
 import { callReadFunction, callWriteFunction, encodeFunctionData } from "@/lib/contracts/actions";
-import { isNumericType } from "@/lib/contracts/abi-parser";
+import { isNumericType, convertInputToArg } from "@/lib/contracts/abi-parser";
 import type { ParsedFunction, FunctionResult } from "@/lib/contracts/types";
 
 interface FunctionCardProps {
@@ -33,25 +33,7 @@ export function FunctionCard({ contractSlug, fn, overrideKey, decimals }: Functi
   const buildArgs = (): any[] => {
     return fn.inputs.map((input) => {
       const raw = inputValues[input.name] || "";
-
-      if (input.type === "tuple" && input.components) {
-        try {
-          const obj = JSON.parse(raw);
-          return input.components.map((c) => obj[c.name] || "");
-        } catch {
-          return raw;
-        }
-      }
-
-      if (input.type.endsWith("[]")) {
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return [];
-        }
-      }
-
-      return raw;
+      return convertInputToArg(raw, input);
     });
   };
 

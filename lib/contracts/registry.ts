@@ -5,6 +5,7 @@ import { FeeModule__factory } from "@/types/contracts/factories/FeeModule__facto
 import { ManagedOptimisticOracleV2Abi__factory } from "@/types/contracts/factories/ManagedOptimisticOracleV2Abi__factory";
 import { OracleWhitelistAbi__factory } from "@/types/contracts/factories/OracleWhitelistAbi__factory";
 import { ProxyWalletFactoryAbi__factory } from "@/types/contracts/factories/ProxyWalletFactoryAbi__factory";
+import { RelayHubAbi__factory } from "@/types/contracts/factories/RelayHubAbi__factory";
 import type { ContractConfig } from "./types";
 
 export const contracts: Record<string, ContractConfig> = {
@@ -70,6 +71,15 @@ export const contracts: Record<string, ContractConfig> = {
     adminKeyEnv: null,
     adminAddressEnv: null,
     description: "Factory for creating proxy wallets",
+  },
+  "relay-hub": {
+    name: "Relay Hub",
+    slug: "relay-hub",
+    factory: RelayHubAbi__factory,
+    addressEnv: "RELAY_HUB_ADDRESS",
+    adminKeyEnv: "RELAYER_EOA_PRIVATE_KEY",
+    adminAddressEnv: "RELAYER_EOA_ADDRESS",
+    description: "GSN Relay Hub for meta-transactions",
   },
 };
 
