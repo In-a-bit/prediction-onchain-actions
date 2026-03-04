@@ -15,6 +15,9 @@ export function Sidebar() {
         <p className="text-sm text-zinc-500">Polymarket Infrastructure</p>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
+        <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          Contracts
+        </p>
         {Object.values(contracts).map((contract) => {
           const href = `/${contract.slug}`;
           const isActive = pathname === href;
@@ -39,6 +42,28 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        <div className="my-2 border-t border-zinc-200 dark:border-zinc-800" />
+        <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          Utils
+        </p>
+        <Link
+          href="/utils"
+          className={cn(
+            "mb-1 flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            pathname === "/utils"
+              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "text-zinc-700 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          )}
+        >
+          <span
+            className={cn(
+              "mr-2 h-2 w-2 rounded-full",
+              pathname === "/utils" ? "bg-green-400" : "bg-zinc-400"
+            )}
+          />
+          CREATE2 Calculator
+        </Link>
       </nav>
       <div className="border-t border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
         Polygon Amoy Testnet
