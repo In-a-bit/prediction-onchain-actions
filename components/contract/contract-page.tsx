@@ -127,7 +127,7 @@ export function ContractPage({ slug }: ContractPageProps) {
             <div className="flex flex-col gap-1">
               {readFunctions.map((fn) => (
                 <FunctionCard
-                  key={fn.name}
+                  key={`${fn.name}(${fn.inputs.map((i: any) => i.type).join(",")})`}
                   contractSlug={slug}
                   fn={fn}
                   overrideKey={overrideKey}
@@ -151,7 +151,7 @@ export function ContractPage({ slug }: ContractPageProps) {
             <div className="flex flex-col gap-1">
               {writeFunctions.map((fn) => (
                 <FunctionCard
-                  key={fn.name}
+                  key={`${fn.name}(${fn.inputs.map((i: any) => i.type).join(",")})`}
                   contractSlug={slug}
                   fn={fn}
                   overrideKey={overrideKey}

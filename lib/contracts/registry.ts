@@ -6,6 +6,7 @@ import { ManagedOptimisticOracleV2Abi__factory } from "@/types/contracts/factori
 import { OracleWhitelistAbi__factory } from "@/types/contracts/factories/OracleWhitelistAbi__factory";
 import { ProxyWalletFactoryAbi__factory } from "@/types/contracts/factories/ProxyWalletFactoryAbi__factory";
 import { RelayHubAbi__factory } from "@/types/contracts/factories/RelayHubAbi__factory";
+import { UmaCtfAdaperAbi__factory } from "@/types/contracts/factories/UmaCtfAdaperAbi__factory";
 import type { ContractConfig } from "./types";
 
 export const contracts: Record<string, ContractConfig> = {
@@ -80,6 +81,15 @@ export const contracts: Record<string, ContractConfig> = {
     adminKeyEnv: "RELAYER_EOA_PRIVATE_KEY",
     adminAddressEnv: "RELAYER_EOA_ADDRESS",
     description: "GSN Relay Hub for meta-transactions",
+  },
+  "uma-ctf-adapter": {
+    name: "UMA CTF Adapter",
+    slug: "uma-ctf-adapter",
+    factory: UmaCtfAdaperAbi__factory,
+    addressEnv: "UMA_CTF_ADAPTER_ADDRESS",
+    adminKeyEnv: "UMA_CTF_ADAPTER_ADMIN_PRIVATE_KEY",
+    adminAddressEnv: "UMA_CTF_ADAPTER_ADMIN_ADDRESS",
+    description: "UMA CTF adapter for resolving conditions via UMA oracle",
   },
 };
 

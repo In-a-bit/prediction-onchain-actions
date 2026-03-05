@@ -9,3 +9,4 @@ export { ManagedOptimisticOracleV2Abi__factory } from "./ManagedOptimisticOracle
 export { OracleWhitelistAbi__factory } from "./OracleWhitelistAbi__factory";
 export { ProxyWalletFactoryAbi__factory } from "./ProxyWalletFactoryAbi__factory";
 export { RelayHubAbi__factory } from "./RelayHubAbi__factory";
+export { UmaCtfAdaperAbi__factory } from "./UmaCtfAdaperAbi__factory";

@@ -1,6 +1,6 @@
 "use server";
 
-import { JsonRpcProvider, Wallet, Interface } from "ethers";
+import { JsonRpcProvider, Wallet, Interface, toUtf8Bytes, hexlify } from "ethers";
 import { contracts } from "./registry";
 
 function getProvider() {
@@ -25,6 +25,10 @@ function getContractAddress(contractSlug: string): string {
   const address = process.env[config.addressEnv];
   if (!address) throw new Error(`Address not configured: ${config.addressEnv}`);
   return address;
+}
+
+export async function fetchContractAddress(contractSlug: string): Promise<string> {
+  return getContractAddress(contractSlug);
 }
 
 export async function callReadFunction(
@@ -137,9 +141,114 @@ function bigintReplacer(_key: string, value: any): any {
   return typeof value === "bigint" ? value.toString() : value;
 }
 
+export async function initializeMarket(
+  ancillaryDataText: string,
+  rewardToken: string,
+  reward: string,
+  proposalBond: string,
+  liveness: string,
+  privateKey: string
+): Promise<
+  | { success: true; txHash: string; questionID: string }
+  | { success: false; error: string }
+> {
+  try {
+    const config = contracts["uma-ctf-adapter"];
+    if (!config) return { success: false, error: "UMA CTF Adapter not configured" };
+
+    const address = getContractAddress("uma-ctf-adapter");
+    const signer = getSigner(privateKey);
+    const contract = config.factory.connect(address, signer);
+
+    const ancillaryData = hexlify(toUtf8Bytes(ancillaryDataText));
+    const tx = await (contract as any).initialize(
+      ancillaryData,
+      rewardToken,
+      BigInt(reward),
+      BigInt(proposalBond),
+      BigInt(liveness)
+    );
+    const receipt = await tx.wait();
+
+    // Parse QuestionInitialized event to get questionID
+    const iface = new Interface(config.factory.abi);
+    let questionID = "";
+    for (const log of receipt.logs) {
+      try {
+        const parsed = iface.parseLog({ topics: log.topics, data: log.data });
+        if (parsed?.name === "QuestionInitialized") {
+          questionID = parsed.args[0]; // questionID is the first indexed arg
+          break;
+        }
+      } catch {
+        // skip logs from other contracts
+      }
+    }
+
+    if (!questionID) {
+      return { success: false, error: "Transaction succeeded but could not parse QuestionInitialized event" };
+    }
+
+    return { success: true, txHash: receipt.hash, questionID };
+  } catch (error: any) {
+    return { success: false, error: extractErrorMessage(error) };
+  }
+}
+
+export async function getWalletInfo(privateKey: string): Promise<
+  | { success: true; address: string; balance: string }
+  | { success: false; error: string }
+> {
+  try {
+    const wallet = getSigner(privateKey);
+    const balance = await getProvider().getBalance(wallet.address);
+    return { success: true, address: wallet.address, balance: balance.toString() };
+  } catch (error: any) {
+    return { success: false, error: extractErrorMessage(error) };
+  }
+}
+
+export async function sendNative(
+  privateKey: string,
+  to: string,
+  amountWei: string
+): Promise<
+  | { success: true; txHash: string }
+  | { success: false; error: string }
+> {
+  try {
+    const wallet = getSigner(privateKey);
+    const value = BigInt(amountWei);
+    const provider = getProvider();
+
+    const balance = await provider.getBalance(wallet.address);
+    if (balance < value) {
+      const { formatEther } = await import("ethers");
+      return {
+        success: false,
+        error: `Insufficient balance: you have ${formatEther(balance)} POL but trying to send ${formatEther(value)} POL (+ gas fees)`,
+      };
+    }
+
+    const tx = await wallet.sendTransaction({ to, value });
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt!.hash };
+  } catch (error: any) {
+    return { success: false, error: extractErrorMessage(error) };
+  }
+}
+
 function extractErrorMessage(error: any): string {
-  if (error.reason) return `Revert: ${error.reason}`;
-  if (error.shortMessage) return error.shortMessage;
+  // shortMessage from ethers is the most descriptive (e.g. "insufficient funds for gas * price + value")
+  if (error.shortMessage) {
+    // Append revert reason if it adds context beyond generic "require(false)"
+    if (error.reason && error.reason !== "require(false)") {
+      return `${error.shortMessage} (${error.reason})`;
+    }
+    return error.shortMessage;
+  }
+  if (error.reason && error.reason !== "require(false)") return `Revert: ${error.reason}`;
+  if (error.code) return `Error [${error.code}]: ${error.message?.slice(0, 300) || "Unknown"}`;
   if (error.message) {
     return error.message.length > 500 ? error.message.slice(0, 500) + "..." : error.message;
   }

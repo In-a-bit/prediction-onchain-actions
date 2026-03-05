@@ -47,23 +47,30 @@ export function Sidebar() {
         <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
           Utils
         </p>
-        <Link
-          href="/utils"
-          className={cn(
-            "mb-1 flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            pathname === "/utils"
-              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-              : "text-zinc-700 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          )}
-        >
-          <span
+        {[
+          { href: "/utils", label: "CREATE2 Calculator" },
+          { href: "/create-market", label: "Create Market" },
+          { href: "/send", label: "Send POL" },
+        ].map(({ href, label }) => (
+          <Link
+            key={href}
+            href={href}
             className={cn(
-              "mr-2 h-2 w-2 rounded-full",
-              pathname === "/utils" ? "bg-green-400" : "bg-zinc-400"
+              "mb-1 flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              pathname === href
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "text-zinc-700 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-800"
             )}
-          />
-          CREATE2 Calculator
-        </Link>
+          >
+            <span
+              className={cn(
+                "mr-2 h-2 w-2 rounded-full",
+                pathname === href ? "bg-green-400" : "bg-zinc-400"
+              )}
+            />
+            {label}
+          </Link>
+        ))}
       </nav>
       <div className="border-t border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
         Polygon Amoy Testnet

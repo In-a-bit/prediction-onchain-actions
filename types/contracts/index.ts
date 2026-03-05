@@ -9,6 +9,7 @@ export type { ManagedOptimisticOracleV2Abi } from "./ManagedOptimisticOracleV2Ab
 export type { OracleWhitelistAbi } from "./OracleWhitelistAbi";
 export type { ProxyWalletFactoryAbi } from "./ProxyWalletFactoryAbi";
 export type { RelayHubAbi } from "./RelayHubAbi";
+export type { UmaCtfAdaperAbi } from "./UmaCtfAdaperAbi";
 export * as factories from "./factories";
 export { ConditionalTokens__factory } from "./factories/ConditionalTokens__factory";
 export { CTFExchange__factory } from "./factories/CTFExchange__factory";
@@ -18,3 +19,4 @@ export { ManagedOptimisticOracleV2Abi__factory } from "./factories/ManagedOptimi
 export { OracleWhitelistAbi__factory } from "./factories/OracleWhitelistAbi__factory";
 export { ProxyWalletFactoryAbi__factory } from "./factories/ProxyWalletFactoryAbi__factory";
 export { RelayHubAbi__factory } from "./factories/RelayHubAbi__factory";
+export { UmaCtfAdaperAbi__factory } from "./factories/UmaCtfAdaperAbi__factory";
