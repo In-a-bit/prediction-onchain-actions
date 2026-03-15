@@ -51,6 +51,7 @@ export function Sidebar() {
           { href: "/utils", label: "CREATE2 Calculator" },
           { href: "/create-market", label: "Create Market" },
           { href: "/send", label: "Send POL" },
+          { href: "/register-relay", label: "Register Relay" },
         ].map(({ href, label }) => (
           <Link
             key={href}

@@ -1,6 +1,6 @@
 "use server";
 
-import { JsonRpcProvider, Wallet, Interface, toUtf8Bytes, hexlify } from "ethers";
+import { JsonRpcProvider, Wallet, Interface, Contract, toUtf8Bytes, hexlify } from "ethers";
 import { contracts } from "./registry";
 
 function getProvider() {
@@ -233,6 +233,45 @@ export async function sendNative(
     const tx = await wallet.sendTransaction({ to, value });
     const receipt = await tx.wait();
     return { success: true, txHash: receipt!.hash };
+  } catch (error: any) {
+    return { success: false, error: extractErrorMessage(error) };
+  }
+}
+
+export async function callWriteFunctionPayable(
+  contractSlug: string,
+  functionName: string,
+  args: any[],
+  valueWei: string,
+  overrideKey?: string
+): Promise<
+  | { success: true; txHash: string; result: string }
+  | { success: false; error: string }
+> {
+  try {
+    const config = contracts[contractSlug];
+    if (!config) return { success: false, error: `Unknown contract: ${contractSlug}` };
+
+    const privateKey = overrideKey || getAdminKey(contractSlug);
+    if (!privateKey) {
+      return {
+        success: false,
+        error: "No private key available. Provide an override key or configure admin key in .env",
+      };
+    }
+
+    const address = getContractAddress(contractSlug);
+    const signer = getSigner(privateKey);
+    const contract = new Contract(address, config.factory.abi, signer);
+
+    const tx = await contract[functionName](...args, { value: BigInt(valueWei) });
+    const receipt = await tx.wait();
+
+    return {
+      success: true,
+      txHash: receipt.hash,
+      result: `Transaction confirmed in block ${receipt.blockNumber}`,
+    };
   } catch (error: any) {
     return { success: false, error: extractErrorMessage(error) };
   }
