@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { contracts } from "@/lib/contracts/registry";
 import { cn } from "@/lib/utils";
+import { logout } from "@/lib/auth";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
@@ -52,6 +54,7 @@ export function Sidebar() {
           { href: "/create-market", label: "Create Market" },
           { href: "/send", label: "Send POL" },
           { href: "/register-relay", label: "Register Relay" },
+          { href: "/admin", label: "Admin CRM" },
         ].map(({ href, label }) => (
           <Link
             key={href}
@@ -73,8 +76,20 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
-      <div className="border-t border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
-        Polygon Amoy Testnet
+      <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-zinc-500">Polygon Amoy Testnet</span>
+          <button
+            onClick={async () => {
+              await logout();
+              router.push("/login");
+              router.refresh();
+            }}
+            className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+          >
+            Logout
+          </button>
+        </div>
       </div>
     </aside>
   );
