@@ -23,7 +23,7 @@ import {
 type Tab = "events" | "relayer-wallets" | "smart-account" | "collateral";
 
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
-const DEFAULT_DPM_URL = "http://localhost:8082";
+const DEFAULT_DPM_URL = "http://localhost:8086";
 
 const GAMMA_PRESETS = [
   { label: "Local (localhost:8084)", value: DEFAULT_GAMMA_URL },
@@ -33,7 +33,7 @@ const GAMMA_PRESETS = [
 ];
 
 const DPM_PRESETS = [
-  { label: "Local (localhost:8082)", value: DEFAULT_DPM_URL },
+  { label: "Local (localhost:8086)", value: DEFAULT_DPM_URL },
   ...(process.env.NEXT_PUBLIC_DPM_API_URL
     ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_DPM_API_URL }]
     : []),
