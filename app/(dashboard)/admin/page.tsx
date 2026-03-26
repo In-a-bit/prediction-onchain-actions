@@ -22,14 +22,21 @@ import {
 
 type Tab = "events" | "relayer-wallets" | "smart-account" | "collateral";
 
+const DEFAULT_GAMMA_URL = "http://localhost:8084";
+const DEFAULT_DPM_URL = "http://localhost:8082";
+
 const GAMMA_PRESETS = [
-  { label: "localhost:8084", value: "http://localhost:8081" },
-  { label: "localhost:3001", value: "http://localhost:3001" },
+  { label: "Local (localhost:8084)", value: DEFAULT_GAMMA_URL },
+  ...(process.env.NEXT_PUBLIC_GAMMA_API_URL
+    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_GAMMA_API_URL }]
+    : []),
 ];
 
 const DPM_PRESETS = [
-  { label: "localhost:8085", value: "http://localhost:8082" },
-  { label: "localhost:3002", value: "http://localhost:3002" },
+  { label: "Local (localhost:8082)", value: DEFAULT_DPM_URL },
+  ...(process.env.NEXT_PUBLIC_DPM_API_URL
+    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_DPM_API_URL }]
+    : []),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1612,8 +1619,8 @@ function usePersistedState(key: string, defaultValue: string): [string, (v: stri
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Tab>("events");
-  const [gammaUrl, setGammaUrl] = usePersistedState("admin_gamma_url", GAMMA_PRESETS[0].value);
-  const [dpmUrl, setDpmUrl] = usePersistedState("admin_dpm_url", DPM_PRESETS[0].value);
+  const [gammaUrl, setGammaUrl] = usePersistedState("admin_gamma_url", process.env.NEXT_PUBLIC_GAMMA_API_URL || DEFAULT_GAMMA_URL);
+  const [dpmUrl, setDpmUrl] = usePersistedState("admin_dpm_url", process.env.NEXT_PUBLIC_DPM_API_URL || DEFAULT_DPM_URL);
   const [showConfig, setShowConfig] = useState(false);
 
   const tabs: { key: Tab; label: string }[] = [
