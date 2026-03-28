@@ -863,8 +863,8 @@ function CreateMarketModal({
     if (form.neg_risk_request_id) payload.neg_risk_request_id = form.neg_risk_request_id;
     if (form.order_price_min_tick_size) payload.order_price_min_tick_size = parseFloat(form.order_price_min_tick_size);
     if (form.order_min_size) payload.order_min_size = parseInt(form.order_min_size, 10);
-    if (form.uma_bond) payload.uma_bond = parseInt(form.uma_bond, 10);
-    if (form.uma_reward) payload.uma_reward = parseInt(form.uma_reward, 10);
+    if (form.uma_bond) payload.uma_bond = form.uma_bond;
+    if (form.uma_reward) payload.uma_reward = form.uma_reward;
     if (form.seconds_delay) payload.seconds_delay = parseFloat(form.seconds_delay);
 
     const res = await createMarket(dpmUrl, payload);
