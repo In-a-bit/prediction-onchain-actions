@@ -218,6 +218,48 @@ export async function signalBalanceAdded(
   }
 }
 
+// --- Contracts ---
+
+export async function listContracts(
+  dpmUrl: string
+): Promise<{ success: true; data: any[] } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/contracts`, { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data: Array.isArray(data) ? data : data?.data ?? [] };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to list contracts" };
+  }
+}
+
+export async function createContract(
+  dpmUrl: string,
+  payload: { address: string; name: string; contract_type: string }
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/contracts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to create contract" };
+  }
+}
+
 export async function getCollateralBalance(
   dpmUrl: string,
   address: string

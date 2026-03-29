@@ -14,13 +14,15 @@ import {
   createRelayerWallet,
   getSmartAccount,
   getCollateralBalance,
+  listContracts,
+  createContract,
 } from "@/lib/admin/actions";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = "events" | "relayer-wallets" | "smart-account" | "collateral";
+type Tab = "events" | "relayer-wallets" | "smart-account" | "collateral" | "contracts";
 
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
 const DEFAULT_DPM_URL = "http://localhost:8086";
@@ -1603,6 +1605,218 @@ function CollateralBalanceTab({ dpmUrl }: { dpmUrl: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Contracts Tab
+// ---------------------------------------------------------------------------
+
+const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[] = [
+  { address: "0x9b4A302A548c7e313c2b74C461db7b84d3074A84", name: "USDC.e", contract_type: "usdc_e" },
+  { address: "0x41cf0Cc822DDA607457cc5429FeEAc62A1Fb0ec1", name: "Conditional Tokens", contract_type: "conditional_tokens" },
+  { address: "0x9d98e0CFE6375035241E44D738f235eC7dd70369", name: "CTF Exchange", contract_type: "ctf_exchange" },
+  { address: "0x8074BdCac5219C1b1c10AEa2947A8A77eB3A2bc6", name: "Fee Module", contract_type: "fee_module" },
+  { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
+  { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
+];
+
+function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [adding, setAdding] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSuccess, setAddSuccess] = useState<string | null>(null);
+  const [bulkAdding, setBulkAdding] = useState(false);
+
+  const fetchContracts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await listContracts(dpmUrl);
+    if (res.success) {
+      setContracts(res.data);
+    } else {
+      setError(res.error);
+    }
+    setLoading(false);
+  }, [dpmUrl]);
+
+  useEffect(() => {
+    fetchContracts();
+  }, [fetchContracts]);
+
+  const existingAddresses = new Set(
+    contracts.map((c) => c.address?.toLowerCase())
+  );
+
+  const missingContracts = KNOWN_CONTRACTS.filter(
+    (kc) => !existingAddresses.has(kc.address.toLowerCase())
+  );
+
+  async function handleAdd(contract: typeof KNOWN_CONTRACTS[number]) {
+    setAdding(contract.address);
+    setAddError(null);
+    setAddSuccess(null);
+    const res = await createContract(dpmUrl, contract);
+    if (res.success) {
+      setAddSuccess(`Added ${contract.name}`);
+      await fetchContracts();
+    } else {
+      setAddError(res.error);
+    }
+    setAdding(null);
+  }
+
+  async function handleAddAll() {
+    setBulkAdding(true);
+    setAddError(null);
+    setAddSuccess(null);
+    let added = 0;
+    for (const contract of missingContracts) {
+      const res = await createContract(dpmUrl, contract);
+      if (res.success) {
+        added++;
+      } else {
+        setAddError(`Failed on ${contract.name}: ${res.error}`);
+        break;
+      }
+    }
+    if (added > 0) {
+      setAddSuccess(`Added ${added} contract${added > 1 ? "s" : ""}`);
+      await fetchContracts();
+    }
+    setBulkAdding(false);
+  }
+
+  const typeColors: Record<string, string> = {
+    usdc_e: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    conditional_tokens: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+    ctf_exchange: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+    fee_module: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
+    uma_ctf_adapter: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
+    managed_oracle: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Add Contracts */}
+      {missingContracts.length > 0 && (
+        <Card
+          title="Add Contracts"
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAddAll}
+              disabled={bulkAdding || adding !== null}
+            >
+              {bulkAdding ? "Adding..." : `Add All (${missingContracts.length})`}
+            </Button>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-500">
+              These contracts are not yet in the database. Click to add individually or use &quot;Add All&quot;.
+            </p>
+            <div className="space-y-2">
+              {missingContracts.map((kc) => (
+                <div
+                  key={kc.address}
+                  className="flex items-center justify-between rounded-md border border-zinc-200 px-4 py-2.5 dark:border-zinc-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{kc.name}</span>
+                      <Badge className={typeColors[kc.contract_type] || "bg-zinc-100 text-zinc-800"}>
+                        {kc.contract_type}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+                      {kc.address}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-4 shrink-0"
+                    onClick={() => handleAdd(kc)}
+                    disabled={adding !== null || bulkAdding}
+                  >
+                    {adding === kc.address ? "Adding..." : "Add"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {addError && <ErrorBox error={addError} />}
+            {addSuccess && <SuccessBox><p className="text-sm text-green-800 dark:text-green-200">{addSuccess}</p></SuccessBox>}
+          </div>
+        </Card>
+      )}
+
+      {/* Existing Contracts Table */}
+      <Card
+        title="Contracts"
+        actions={
+          <Button variant="outline" size="sm" onClick={fetchContracts} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          {error && <ErrorBox error={error} />}
+
+          {loading && contracts.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">Loading...</p>
+          ) : contracts.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">
+              No contracts found. Add contracts above to populate the table.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-zinc-500">ID</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Name</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Address</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Type</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {contracts.map((c: any) => (
+                    <tr
+                      key={c.id}
+                      className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                    >
+                      <td className="px-3 py-2 font-mono text-zinc-500">{c.id}</td>
+                      <td className="px-3 py-2 font-medium">{c.name}</td>
+                      <td className="px-3 py-2 font-mono">{c.address}</td>
+                      <td className="px-3 py-2">
+                        <Badge className={typeColors[c.contract_type] || "bg-zinc-100 text-zinc-800"}>
+                          {c.contract_type}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 text-zinc-500">
+                        {c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!loading && contracts.length > 0 && missingContracts.length === 0 && (
+            <p className="text-center text-xs text-green-600 dark:text-green-400">
+              All known contracts are registered.
+            </p>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -1628,6 +1842,7 @@ export default function AdminPage() {
     { key: "relayer-wallets", label: "Relayer Wallets" },
     { key: "smart-account", label: "Smart Account" },
     { key: "collateral", label: "Collateral Balance" },
+    { key: "contracts", label: "Contracts" },
   ];
 
   return (
@@ -1693,6 +1908,7 @@ export default function AdminPage() {
           <div className={activeTab === "relayer-wallets" ? "" : "hidden"}><RelayerWalletsTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "smart-account" ? "" : "hidden"}><SmartAccountTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "collateral" ? "" : "hidden"}><CollateralBalanceTab dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "contracts" ? "" : "hidden"}><ContractsTab dpmUrl={dpmUrl} /></div>
         </div>
       </div>
     </div>
