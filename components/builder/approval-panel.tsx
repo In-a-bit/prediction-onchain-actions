@@ -13,7 +13,7 @@ import {
   approveAllViaRelayer,
   type ApprovalStatus,
   type TxResult,
-} from "@/lib/polymarket/actions";
+} from "@/lib/polymarket/approvals-client";
 import { CONTRACTS } from "@/lib/polymarket/config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";

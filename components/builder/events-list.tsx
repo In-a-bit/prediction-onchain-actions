@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useBuilder } from "./builder-provider";
 import type { GammaEvent } from "@/lib/polymarket/types";
 import { parseMarket } from "@/lib/polymarket/types";
@@ -35,11 +35,18 @@ export function EventsList() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeTag, setActiveTag] = useState("");
   const [hasMore, setHasMore] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Load initial events when tag changes
+  // Debounce search input — query API after 400ms of no typing
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Load events when tag or search changes
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -47,11 +54,12 @@ export function EventsList() {
     setHasMore(true);
 
     const tag = activeTag || undefined;
-    console.log(`[events-list] Loading events, tag="${activeTag}", passing=${tag}`);
-    fetchEventsClient(0, tag)
+    const query = debouncedSearch || undefined;
+    console.log(`[events-list] Loading events, tag="${activeTag}", search="${debouncedSearch}"`);
+    fetchEventsClient(0, tag, query)
       .then((data) => {
         if (cancelled) return;
-        console.log(`[events-list] Received ${data.length} events for tag="${activeTag}"`);
+        console.log(`[events-list] Received ${data.length} events`);
         setEvents(data);
         setHasMore(data.length === 30);
       })
@@ -64,13 +72,14 @@ export function EventsList() {
 
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     return () => { cancelled = true; };
-  }, [activeTag]);
+  }, [activeTag, debouncedSearch]);
 
   function handleLoadMore() {
     if (loadingMore) return;
     setLoadingMore(true);
     const tag = activeTag || undefined;
-    fetchEventsClient(events.length, tag)
+    const query = debouncedSearch || undefined;
+    fetchEventsClient(events.length, tag, query)
       .then((data) => {
         setEvents((prev) => [...prev, ...data]);
         setHasMore(data.length === 30);
@@ -85,25 +94,39 @@ export function EventsList() {
     setActiveTag(tag);
   }
 
-  // Filter: only show events with active, non-closed markets accepting orders
+  // Filter active markets, sort most interesting (closest to 50%) first
   const filtered = useMemo(() => {
-    const withActiveMarkets = events
-      .map((e) => ({
-        ...e,
-        markets: (e.markets || []).filter(
-          (m) => m.active && !m.closed && m.enableOrderBook
-        ),
-      }))
-      .filter((e) => e.markets.length > 0);
+    const q = debouncedSearch.toLowerCase();
 
-    if (!search.trim()) return withActiveMarkets;
-    const q = search.toLowerCase();
-    return withActiveMarkets.filter(
-      (e) =>
-        e.title.toLowerCase().includes(q) ||
-        e.markets.some((m) => m.question.toLowerCase().includes(q))
-    );
-  }, [events, search]);
+    function getYesPrice(m: any): number {
+      try {
+        const prices = JSON.parse(m.outcomePrices || "[]").map(Number);
+        return prices[0] || 0;
+      } catch { return 0; }
+    }
+
+    return events
+      .map((e) => {
+        const markets = (e.markets || []).filter((m) => {
+          if (!m.active || m.closed || !m.enableOrderBook) return false;
+          const yesPrice = getYesPrice(m);
+          if (yesPrice === 0 || yesPrice === 1) return false;
+          if (q) {
+            return m.question.toLowerCase().includes(q) ||
+              e.title.toLowerCase().includes(q);
+          }
+          return true;
+        });
+        // Sort markets: closest to 50% first (most interesting/undecided)
+        markets.sort((a, b) => {
+          const distA = Math.abs(getYesPrice(a) - 0.5);
+          const distB = Math.abs(getYesPrice(b) - 0.5);
+          return distA - distB;
+        });
+        return { ...e, markets };
+      })
+      .filter((e) => e.markets.length > 0);
+  }, [events, debouncedSearch]);
 
   return (
     <div className="flex h-full flex-col">
@@ -111,7 +134,7 @@ export function EventsList() {
       <div className="shrink-0 border-b border-zinc-800 p-3">
         <h2 className="mb-2 text-sm font-semibold text-zinc-300">Markets</h2>
         <Input
-          placeholder="Search loaded markets..."
+          placeholder="Search markets..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-8 border-zinc-700 bg-zinc-800 text-xs text-zinc-300 placeholder:text-zinc-600"
