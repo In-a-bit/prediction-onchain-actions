@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export function TradePanel() {
   const {
     connected,
-    privateKey,
+    signerKey,
     creds,
     selectedMarket,
     selectedOutcomeIndex,
@@ -86,7 +86,7 @@ export function TradePanel() {
 
       let res: any;
       if (orderType === "limit") {
-        res = await placeLimitOrderClient(privateKey, creds, {
+        res = await placeLimitOrderClient(signerKey, creds, {
           tokenID: tokenId,
           price: Number(price),
           size: Number(size),
@@ -96,7 +96,7 @@ export function TradePanel() {
           feeRateBps: feeRateBps !== "" ? Number(feeRateBps) : undefined,
         });
       } else {
-        res = await placeMarketOrderClient(privateKey, creds, {
+        res = await placeMarketOrderClient(signerKey, creds, {
           tokenID: tokenId,
           amount: Number(size),
           side,

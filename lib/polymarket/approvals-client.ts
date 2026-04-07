@@ -128,9 +128,10 @@ export interface TxResult {
 
 // ─── Check Approvals (read-only, public RPC) ───
 
-export async function checkApprovals(privateKey: string): Promise<ApprovalStatus> {
-  const wallet = new Wallet(privateKey);
-  const eoaAddress = wallet.address;
+export async function checkApprovals(privateKeyOrAddress: string): Promise<ApprovalStatus> {
+  // Accept either a private key or an address
+  const isAddress = privateKeyOrAddress.length === 42 && privateKeyOrAddress.startsWith("0x");
+  const eoaAddress = isAddress ? privateKeyOrAddress : new Wallet(privateKeyOrAddress).address;
   const proxyAddress = deriveProxyWallet(eoaAddress, CONTRACTS.proxyFactory);
   const provider = getProvider();
 

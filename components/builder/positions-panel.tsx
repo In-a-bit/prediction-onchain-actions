@@ -33,7 +33,7 @@ function formatUsd(v: string | number) {
 export function PositionsPanel() {
   const {
     connected,
-    privateKey,
+    signerKey,
     creds,
     walletBalances,
     orders,
@@ -108,7 +108,7 @@ export function PositionsPanel() {
     if (!creds) return;
     setCancellingId(orderId);
     try {
-      await cancelOrderClient(privateKey, creds, orderId);
+      await cancelOrderClient(signerKey, creds, orderId);
       await refreshOrders();
     } catch {
       // silent
@@ -157,7 +157,7 @@ export function PositionsPanel() {
     try {
       const size = Number(pos.size || pos.amount || 0);
       const negRisk = Boolean(pos.negativeRisk ?? pos.negRisk ?? false);
-      const res = await placeMarketOrderClient(privateKey, creds, {
+      const res = await placeMarketOrderClient(signerKey, creds, {
         tokenID: asset,
         amount: size,
         side: "SELL",

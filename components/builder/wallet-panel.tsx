@@ -79,6 +79,7 @@ export function WalletPanel() {
     connected,
     address,
     privateKey,
+    isMetaMask,
     balance,
     allowance,
     polBalance,
@@ -86,12 +87,12 @@ export function WalletPanel() {
     connecting,
     error,
     connect,
+    connectMM,
     disconnect,
     refreshBalance,
   } = useBuilder();
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [mmLoading, setMmLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {
@@ -103,37 +104,15 @@ export function WalletPanel() {
     }
   }, [refreshBalance]);
 
-  const connectMetaMask = useCallback(async () => {
-    if (!window.ethereum) {
-      alert("MetaMask not detected. Please install MetaMask.");
-      return;
-    }
-    setMmLoading(true);
-    try {
-      const accounts = (await window.ethereum.request({
-        method: "eth_requestAccounts",
-      })) as string[];
-      if (!accounts[0]) return;
-      const addr = accounts[0];
-      const pk = prompt(
-        `Connected: ${addr}\n\nMetaMask does not expose private keys directly.\nTo enable full trading, paste your private key for this address:`
-      );
-      if (pk?.trim()) {
-        await connect(pk.trim());
-      }
-    } catch {
-      // user rejected or error
-    } finally {
-      setMmLoading(false);
-    }
-  }, [connect]);
-
   if (connected) {
     const wb = walletBalances;
     return (
       <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
         {/* Status + Addresses */}
         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]" />
+        {isMetaMask && (
+          <Badge variant="outline" className="border-orange-800 text-[10px] text-orange-400">MM</Badge>
+        )}
         <CopyableBadge address={address} className="border-zinc-700 text-zinc-300" />
         {wb && (
           <CopyableBadge address={wb.proxyAddress} label="Proxy" className="border-cyan-800 text-cyan-400" />
@@ -215,7 +194,7 @@ export function WalletPanel() {
                 )}
 
                 {/* Deposit */}
-                {wb && (
+                {wb && !isMetaMask && (
                   <div className="space-y-2">
                     <h3 className="text-xs font-semibold text-zinc-400">Deposit to Proxy</h3>
                     <DepositSection
@@ -289,11 +268,11 @@ export function WalletPanel() {
           <Button
             variant="outline"
             size="sm"
-            onClick={connectMetaMask}
-            disabled={connecting || mmLoading}
+            onClick={connectMM}
+            disabled={connecting}
             className="h-7 border-zinc-700 bg-zinc-800 text-xs text-orange-400 hover:bg-zinc-700 hover:text-orange-300"
           >
-            {mmLoading ? "..." : "MetaMask"}
+            {connecting ? "..." : "MetaMask"}
           </Button>
         </div>
       </div>

@@ -57,7 +57,8 @@ interface BuilderState {
   // Wallet
   connected: boolean;
   address: string;
-  privateKey: string;
+  privateKey: string; // empty when using MetaMask
+  isMetaMask: boolean;
   creds: ApiKeyCreds | null;
   balance: string;
   allowance: string;
@@ -105,7 +106,10 @@ interface Position {
 }
 
 interface BuilderContextType extends BuilderState {
+  // signerKey: address for MetaMask, privateKey for PK mode — pass to trading-client functions
+  signerKey: string;
   connect: (privateKey: string) => Promise<void>;
+  connectMM: () => Promise<void>;
   disconnect: () => void;
   selectMarket: (market: ParsedMarket | null) => void;
   setSelectedOutcomeIndex: (index: number) => void;
@@ -134,6 +138,7 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     connected: false,
     address: "",
     privateKey: "",
+    isMetaMask: false,
     creds: null,
     balance: "0",
     allowance: "0",
@@ -154,12 +159,19 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const { privateKey, creds, address } = JSON.parse(stored);
-        if (privateKey && creds && address) {
+        const { privateKey, creds, address, isMetaMask } = JSON.parse(stored);
+        if (creds && address) {
+          if (isMetaMask) {
+            // Re-initialize MetaMask signer for the stored address
+            import("@/lib/polymarket/trading-client").then(({ setMetaMaskSigner }) => {
+              setMetaMaskSigner(address);
+            });
+          }
           setState((s) => ({
             ...s,
             connected: true,
-            privateKey,
+            privateKey: isMetaMask ? "" : (privateKey || ""),
+            isMetaMask: !!isMetaMask,
             creds,
             address,
           }));
@@ -172,17 +184,18 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 
   // Save session to sessionStorage when wallet state changes
   useEffect(() => {
-    if (state.connected && state.privateKey && state.creds) {
+    if (state.connected && state.creds) {
       sessionStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          privateKey: state.privateKey,
+          privateKey: state.isMetaMask ? "" : state.privateKey,
+          isMetaMask: state.isMetaMask,
           creds: state.creds,
           address: state.address,
         })
       );
     }
-  }, [state.connected, state.privateKey, state.creds, state.address]);
+  }, [state.connected, state.privateKey, state.isMetaMask, state.creds, state.address]);
 
   const connect = useCallback(async (privateKey: string) => {
     setState((s) => ({ ...s, connecting: true, error: "" }));
@@ -208,12 +221,53 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const connectMM = useCallback(async () => {
+    if (!window.ethereum) {
+      setState((s) => ({ ...s, error: "MetaMask not detected" }));
+      return;
+    }
+    setState((s) => ({ ...s, connecting: true, error: "" }));
+    try {
+      const accounts = (await window.ethereum.request({
+        method: "eth_requestAccounts",
+      })) as string[];
+      if (!accounts[0]) {
+        setState((s) => ({ ...s, connecting: false, error: "No account selected" }));
+        return;
+      }
+      const address = accounts[0];
+      const { connectMetaMask } = await import("@/lib/polymarket/trading-client");
+      const result = await connectMetaMask(address);
+      if (!result.success) {
+        setState((s) => ({ ...s, connecting: false, error: result.error || "MetaMask connection failed" }));
+        return;
+      }
+      setState((s) => ({
+        ...s,
+        connected: true,
+        address,
+        privateKey: "",
+        isMetaMask: true,
+        creds: result.creds!,
+        connecting: false,
+        error: "",
+      }));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setState((s) => ({ ...s, connecting: false, error: message }));
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
+    import("@/lib/polymarket/trading-client").then(({ clearMetaMaskSigner }) => {
+      clearMetaMaskSigner();
+    });
     sessionStorage.removeItem(STORAGE_KEY);
     setState({
       connected: false,
       address: "",
       privateKey: "",
+      isMetaMask: false,
       creds: null,
       balance: "0",
       allowance: "0",
@@ -256,45 +310,67 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, sellIntent: intent }));
   }, []);
 
+  // In MetaMask mode, use address as the identifier; in PK mode, use privateKey
+  const signerKey = state.isMetaMask ? state.address : state.privateKey;
+
   const refreshBalance = useCallback(async () => {
     if (!state.connected || !state.creds) return;
     try {
-      const { getBalance, getWalletBalances } = await import("@/lib/polymarket/actions");
-      const [res, wb] = await Promise.all([
-        getBalance(state.privateKey, state.creds),
-        getWalletBalances(state.privateKey),
-      ]);
-      setState((s) => ({
-        ...s,
-        balance: res.balance,
-        allowance: res.allowance,
-        polBalance: wb.eoaPolBalance,
-        walletBalances: wb,
-      }));
+      if (state.isMetaMask) {
+        const { getBalanceClient, getWalletBalancesClient } = await import("@/lib/polymarket/trading-client");
+        const [res, wb] = await Promise.all([
+          getBalanceClient(state.address, state.creds),
+          getWalletBalancesClient(state.address),
+        ]);
+        setState((s) => ({
+          ...s,
+          balance: res.balance,
+          allowance: res.allowance,
+          polBalance: wb.eoaPolBalance,
+          walletBalances: wb,
+        }));
+      } else {
+        const { getBalance, getWalletBalances } = await import("@/lib/polymarket/actions");
+        const [res, wb] = await Promise.all([
+          getBalance(state.privateKey, state.creds),
+          getWalletBalances(state.privateKey),
+        ]);
+        setState((s) => ({
+          ...s,
+          balance: res.balance,
+          allowance: res.allowance,
+          polBalance: wb.eoaPolBalance,
+          walletBalances: wb,
+        }));
+      }
     } catch (e) {
       console.error("[provider] refreshBalance error:", e);
     }
-  }, [state.connected, state.creds, state.privateKey]);
+  }, [state.connected, state.creds, state.privateKey, state.isMetaMask, state.address]);
 
   const refreshOrders = useCallback(async () => {
     if (!state.connected || !state.creds) return;
     try {
-      const { getOpenOrders } = await import("@/lib/polymarket/actions");
-      const raw = await getOpenOrders(state.privateKey, state.creds);
+      let raw: any[];
+      if (state.isMetaMask) {
+        const { getOpenOrdersClient } = await import("@/lib/polymarket/trading-client");
+        raw = await getOpenOrdersClient(state.address, state.creds);
+      } else {
+        const { getOpenOrders } = await import("@/lib/polymarket/actions");
+        raw = await getOpenOrders(state.privateKey, state.creds);
+      }
       console.log("[provider] refreshOrders raw:", raw);
       const apiOrders = (Array.isArray(raw) ? raw : []) as OpenOrder[];
       setState((s) => {
         if (apiOrders.length > 0) {
-          // API returned orders — use them as source of truth
           return { ...s, orders: apiOrders };
         }
-        // API returned empty — keep locally-tracked orders (they may not be indexed yet)
         return s;
       });
     } catch (e) {
       console.error("[provider] refreshOrders error:", e);
     }
-  }, [state.connected, state.creds, state.privateKey]);
+  }, [state.connected, state.creds, state.privateKey, state.isMetaMask, state.address]);
 
   const refreshTrades = useCallback(async () => {
     if (!state.connected || !state.walletBalances) return;
@@ -429,7 +505,9 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     <BuilderContext.Provider
       value={{
         ...state,
+        signerKey: state.isMetaMask ? state.address : state.privateKey,
         connect,
+        connectMM,
         disconnect,
         selectMarket,
         setSelectedOutcomeIndex,

@@ -30,7 +30,7 @@ interface TxState {
 }
 
 export function ApprovalPanel({ embedded = false }: { embedded?: boolean }) {
-  const { connected, privateKey } = useBuilder();
+  const { connected, signerKey } = useBuilder();
   const [status, setStatus] = useState<ApprovalStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [expanded, setExpanded] = useState(embedded);
@@ -47,10 +47,10 @@ export function ApprovalPanel({ embedded = false }: { embedded?: boolean }) {
   });
 
   const refresh = useCallback(async () => {
-    if (!connected || !privateKey) return;
+    if (!connected || !signerKey) return;
     setChecking(true);
     try {
-      const s = await checkApprovals(privateKey);
+      const s = await checkApprovals(signerKey);
       setStatus(s);
       if (!s.exchangeApproved || !s.negRiskExchangeApproved || !s.negRiskAdapterApproved || !s.ctfExchangeApproved || !s.ctfNegRiskExchangeApproved || !s.ctfNegRiskAdapterApproved) {
         setExpanded(true);
@@ -60,7 +60,7 @@ export function ApprovalPanel({ embedded = false }: { embedded?: boolean }) {
     } finally {
       setChecking(false);
     }
-  }, [connected, privateKey]);
+  }, [connected, signerKey]);
 
   useEffect(() => {
     if (connected) refresh();
@@ -92,7 +92,7 @@ export function ApprovalPanel({ embedded = false }: { embedded?: boolean }) {
   ) {
     setter({ loading: true, result: null });
     try {
-      const result = await action(privateKey);
+      const result = await action(signerKey);
       setter({ loading: false, result });
       if (result.success) refresh();
     } catch (e: any) {
@@ -107,29 +107,29 @@ export function ApprovalPanel({ embedded = false }: { embedded?: boolean }) {
     setApproveAllState({ loading: true, results: [] });
     try {
       if (status?.relayerAvailable) {
-        const results = await approveAllViaRelayer(privateKey);
+        const results = await approveAllViaRelayer(signerKey);
         setApproveAllState({ loading: false, results });
         if (results.some((r) => r.success)) refresh();
       } else {
         // Sequential direct approval
         const results: TxResult[] = [];
         if (!status?.exchangeApproved) {
-          results.push(await approveUSDCForExchange(privateKey));
+          results.push(await approveUSDCForExchange(signerKey));
         }
         if (!status?.negRiskExchangeApproved) {
-          results.push(await approveUSDCForNegRiskExchange(privateKey));
+          results.push(await approveUSDCForNegRiskExchange(signerKey));
         }
         if (!status?.negRiskAdapterApproved) {
-          results.push(await approveUSDCForNegRiskAdapter(privateKey));
+          results.push(await approveUSDCForNegRiskAdapter(signerKey));
         }
         if (!status?.ctfExchangeApproved) {
-          results.push(await approveConditionalTokensForExchange(privateKey));
+          results.push(await approveConditionalTokensForExchange(signerKey));
         }
         if (!status?.ctfNegRiskExchangeApproved) {
-          results.push(await approveConditionalTokensForNegRiskExchange(privateKey));
+          results.push(await approveConditionalTokensForNegRiskExchange(signerKey));
         }
         if (!status?.ctfNegRiskAdapterApproved) {
-          results.push(await approveConditionalTokensForNegRiskAdapter(privateKey));
+          results.push(await approveConditionalTokensForNegRiskAdapter(signerKey));
         }
         setApproveAllState({ loading: false, results });
         refresh();
