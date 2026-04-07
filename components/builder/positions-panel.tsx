@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useBuilder } from "./builder-provider";
-import { cancelOrder, placeMarketOrder } from "@/lib/polymarket/actions";
+import { cancelOrderClient, placeMarketOrderClient } from "@/lib/polymarket/trading-client";
 import { fetchMarketBySlug } from "@/lib/polymarket/gamma-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -82,7 +82,7 @@ export function PositionsPanel() {
     if (!creds) return;
     setCancellingId(orderId);
     try {
-      await cancelOrder(privateKey, creds, orderId);
+      await cancelOrderClient(privateKey, creds, orderId);
       await refreshOrders();
     } catch {
       // silent
@@ -131,7 +131,7 @@ export function PositionsPanel() {
     try {
       const size = Number(pos.size || pos.amount || 0);
       const negRisk = Boolean(pos.negativeRisk ?? pos.negRisk ?? false);
-      const res = await placeMarketOrder(privateKey, creds, {
+      const res = await placeMarketOrderClient(privateKey, creds, {
         tokenID: asset,
         amount: size,
         side: "SELL",

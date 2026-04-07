@@ -1,8 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getOrderBook } from "@/lib/polymarket/actions";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const CLOB_API = "https://clob.polymarket.com";
+
+async function fetchOrderBook(tokenId: string): Promise<{ bids: OrderLevel[]; asks: OrderLevel[]; last_trade_price?: string }> {
+  const res = await fetch(`${CLOB_API}/book?token_id=${tokenId}`);
+  if (!res.ok) throw new Error(`Order book fetch failed: ${res.status}`);
+  return res.json();
+}
 
 interface OrderLevel {
   price: string;
@@ -25,7 +32,7 @@ export function OrderBook({ tokenId }: { tokenId: string }) {
   const fetchBook = useCallback(async () => {
     if (!tokenId) return;
     try {
-      const book = await getOrderBook(tokenId);
+      const book = await fetchOrderBook(tokenId);
       const bids = (book.bids || [])
         .sort((a, b) => Number(b.price) - Number(a.price))
         .slice(0, MAX_LEVELS);

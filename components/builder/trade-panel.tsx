@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useBuilder } from "./builder-provider";
-import { placeLimitOrder, placeMarketOrder } from "@/lib/polymarket/actions";
+import { placeLimitOrderClient, placeMarketOrderClient } from "@/lib/polymarket/trading-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,7 +86,7 @@ export function TradePanel() {
 
       let res: any;
       if (orderType === "limit") {
-        res = await placeLimitOrder(privateKey, creds, {
+        res = await placeLimitOrderClient(privateKey, creds, {
           tokenID: tokenId,
           price: Number(price),
           size: Number(size),
@@ -96,7 +96,7 @@ export function TradePanel() {
           feeRateBps: feeRateBps !== "" ? Number(feeRateBps) : undefined,
         });
       } else {
-        res = await placeMarketOrder(privateKey, creds, {
+        res = await placeMarketOrderClient(privateKey, creds, {
           tokenID: tokenId,
           amount: Number(size),
           side,
@@ -151,7 +151,7 @@ export function TradePanel() {
   }
 
   return (
-    <div className="flex h-full flex-col p-3">
+    <div className="flex flex-col p-3">
       {/* Outcome selector */}
       <div className="mb-3 flex gap-1.5">
         {outcomes.map((outcome, i) => (
