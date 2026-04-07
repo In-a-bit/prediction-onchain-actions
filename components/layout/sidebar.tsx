@@ -50,6 +50,7 @@ export function Sidebar() {
           Utils
         </p>
         {[
+          { href: "/builder", label: "Polymarket Builder" },
           { href: "/utils", label: "CREATE2 Calculator" },
           { href: "/create-market", label: "Create Market" },
           { href: "/send", label: "Send POL" },

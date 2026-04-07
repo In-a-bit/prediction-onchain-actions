@@ -10,6 +10,9 @@
     "typechain": "typechain --target ethers-v6 --out-dir types/contracts 'contracts/*.json'"
   },
   "dependencies": {
+    "@polymarket/builder-relayer-client": "^0.0.8",
+    "@polymarket/builder-signing-sdk": "^1.0.0",
+    "@polymarket/clob-client": "^5.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jose": "^6.2.1",
@@ -18,7 +21,8 @@
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "viem": "^2.47.10"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
