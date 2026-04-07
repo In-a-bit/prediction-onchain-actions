@@ -79,7 +79,8 @@ function getBuilderConfig() {
 }
 
 function createRelayClient(privateKey: string) {
-  const account = privateKeyToAccount(privateKey as Hex);
+  const pk = (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as Hex;
+  const account = privateKeyToAccount(pk);
   const wallet = createWalletClient({
     account,
     chain: polygon,
