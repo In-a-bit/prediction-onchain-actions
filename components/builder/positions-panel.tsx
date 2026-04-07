@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useBuilder } from "./builder-provider";
 import { cancelOrderClient, placeMarketOrderClient } from "@/lib/polymarket/trading-client";
-import { fetchMarketBySlug } from "@/lib/polymarket/gamma-client";
+import { fetchMarketBySlug, fetchMarketByConditionId } from "@/lib/polymarket/gamma-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +54,32 @@ export function PositionsPanel() {
   const [loadingMarket, setLoadingMarket] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cache: conditionId → { question, slug }
+  const [marketNames, setMarketNames] = useState<Record<string, { question: string; slug: string }>>({});
+  const fetchingRef = useRef<Set<string>>(new Set());
+
+  // Resolve market names for open orders
+  useEffect(() => {
+    if (orders.length === 0) return;
+    const conditionIds = [...new Set(orders.map((o) => o.market).filter(Boolean))];
+    const missing = conditionIds.filter((id) => !marketNames[id] && !fetchingRef.current.has(id));
+    if (missing.length === 0) return;
+
+    for (const cid of missing) {
+      fetchingRef.current.add(cid);
+      fetchMarketByConditionId(cid).then((m) => {
+        if (m) {
+          setMarketNames((prev) => ({
+            ...prev,
+            [cid]: { question: m.question, slug: m.slug },
+          }));
+        }
+      }).finally(() => {
+        fetchingRef.current.delete(cid);
+      });
+    }
+  }, [orders, marketNames]);
 
   // Auto-refresh every 3s (only starts once walletBalances is available)
   useEffect(() => {
@@ -318,6 +344,7 @@ export function PositionsPanel() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-500">
+                <th className="px-3 py-2 text-left font-medium">Market</th>
                 <th className="px-3 py-2 text-left font-medium">Side</th>
                 <th className="px-3 py-2 text-left font-medium">Outcome</th>
                 <th className="px-3 py-2 text-right font-medium">Price</th>
@@ -329,8 +356,24 @@ export function PositionsPanel() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
+              {orders.map((order) => {
+                const mInfo = marketNames[order.market];
+                const marketLabel = mInfo?.question || truncateId(order.market);
+                return (
                 <tr key={order.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/50">
+                  <td
+                    className="max-w-[180px] truncate px-3 py-2 text-zinc-300"
+                    title={mInfo ? `${mInfo.question}\nSlug: ${mInfo.slug}\nCondition: ${order.market}` : order.market}
+                  >
+                    {mInfo ? (
+                      <div>
+                        <span className="block truncate">{marketLabel.length > 35 ? marketLabel.slice(0, 35) + "..." : marketLabel}</span>
+                        <span className="block font-mono text-[10px] text-zinc-600">{mInfo.slug || truncateId(order.market)}</span>
+                      </div>
+                    ) : (
+                      <span className="font-mono text-zinc-500">{truncateId(order.market)}</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <Badge
                       variant="outline"
@@ -370,7 +413,8 @@ export function PositionsPanel() {
                     </Button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
