@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useBuilder } from "./builder-provider";
 import { depositToProxy } from "@/lib/polymarket/actions";
+import { withdrawFromProxy } from "@/lib/polymarket/approvals-client";
 import { ApprovalPanel } from "./approval-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,7 @@ export function WalletPanel() {
     address,
     privateKey,
     isMetaMask,
+    signerKey,
     balance,
     allowance,
     polBalance,
@@ -203,6 +205,19 @@ export function WalletPanel() {
                       proxyAddress={wb.proxyAddress}
                       proxyUsdcBalance={wb.proxyUsdcBalance}
                       onDeposited={handleRefresh}
+                    />
+                  </div>
+                )}
+
+                {/* Withdraw */}
+                {wb && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold text-zinc-400">Withdraw from Proxy</h3>
+                    <WithdrawSection
+                      signerKey={signerKey}
+                      eoaAddress={wb.eoaAddress}
+                      proxyUsdcBalance={wb.proxyUsdcBalance}
+                      onWithdrawn={handleRefresh}
                     />
                   </div>
                 )}
@@ -409,6 +424,103 @@ function DepositSection({
       {!hasEoaBalance && (
         <p className="mt-1.5 text-[10px] text-amber-400">
           No USDC.e in EOA wallet. Send USDC.e to your EOA first.
+        </p>
+      )}
+      {result && (
+        <div
+          className={cn(
+            "mt-2 rounded px-2 py-1.5 text-[10px]",
+            result.success ? "bg-emerald-950/50 text-emerald-400" : "bg-red-950/50 text-red-400"
+          )}
+        >
+          {result.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WithdrawSection({
+  signerKey,
+  eoaAddress,
+  proxyUsdcBalance,
+  onWithdrawn,
+}: {
+  signerKey: string;
+  eoaAddress: string;
+  proxyUsdcBalance: string;
+  onWithdrawn: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const proxyUsdc = Number(proxyUsdcBalance) / 1e6;
+  const hasProxyBalance = proxyUsdc > 0;
+
+  async function handleWithdraw() {
+    if (!amount || Number(amount) <= 0) return;
+    setWithdrawing(true);
+    setResult(null);
+    try {
+      const res = await withdrawFromProxy(signerKey, amount);
+      if (res.success) {
+        setResult({
+          success: true,
+          message: `Withdrew ${amount} USDC.e → EOA. Tx: ${(res.hash || res.relayTxId || "").slice(0, 10)}...`,
+        });
+        setAmount("");
+        onWithdrawn();
+      } else {
+        setResult({ success: false, message: res.error || "Withdrawal failed" });
+      }
+    } catch (e: any) {
+      setResult({ success: false, message: e?.message || "Withdrawal failed" });
+    } finally {
+      setWithdrawing(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-orange-900/50 bg-orange-950/10 p-2.5">
+      <p className="text-[10px] text-zinc-500">
+        Transfer USDC.e from proxy to EOA ({eoaAddress.slice(0, 6)}...{eoaAddress.slice(-4)}) via relayer (gasless)
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <div className="relative flex-1">
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={withdrawing || !hasProxyBalance}
+            className="h-8 border-zinc-700 bg-zinc-800 pr-16 font-mono text-xs text-zinc-200"
+          />
+          <button
+            onClick={() => setAmount(proxyUsdc.toFixed(2))}
+            disabled={!hasProxyBalance}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-600 hover:text-zinc-300"
+          >
+            MAX
+          </button>
+        </div>
+        <span className="text-[10px] text-zinc-500">
+          Avail: {proxyUsdc.toFixed(2)}
+        </span>
+        <Button
+          size="sm"
+          onClick={handleWithdraw}
+          disabled={withdrawing || !amount || Number(amount) <= 0 || !hasProxyBalance}
+          className="h-8 bg-orange-600 px-4 text-xs font-semibold hover:bg-orange-500"
+        >
+          {withdrawing ? "Sending..." : "Withdraw"}
+        </Button>
+      </div>
+      {!hasProxyBalance && (
+        <p className="mt-1.5 text-[10px] text-amber-400">
+          No USDC.e in proxy wallet.
         </p>
       )}
       {result && (

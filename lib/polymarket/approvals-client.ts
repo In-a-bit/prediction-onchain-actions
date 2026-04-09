@@ -1,11 +1,12 @@
 // Client-side approval checking and execution — no server round-trip
-import { Wallet, JsonRpcProvider, Contract, MaxUint256 } from "ethers";
+import { Wallet, JsonRpcProvider, BrowserProvider, Contract, MaxUint256 } from "ethers";
 import { deriveProxyWallet } from "@polymarket/builder-relayer-client/dist/builder/derive";
 import { RelayClient, RelayerTxType, type Transaction as RelayTx } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import {
   createWalletClient,
   http,
+  custom,
   encodeFunctionData,
   maxUint256,
   type Hex,
@@ -13,6 +14,10 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon } from "viem/chains";
 import { CHAIN_ID, POLYGON_RPC, CONTRACTS } from "./config";
+
+function isAddressOnly(input: string): boolean {
+  return input.length === 42 && input.startsWith("0x");
+}
 
 const ERC20_READ_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
@@ -30,6 +35,19 @@ const ERC20_APPROVE_ABI = [
     stateMutability: "nonpayable",
     inputs: [
       { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+const ERC20_TRANSFER_ABI = [
+  {
+    name: "transfer",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
       { name: "amount", type: "uint256" },
     ],
     outputs: [{ name: "", type: "bool" }],
@@ -78,15 +96,36 @@ function getBuilderConfig() {
   });
 }
 
-function createRelayClient(privateKey: string) {
-  const pk = (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as Hex;
+function createRelayClient(privateKeyOrAddress: string) {
+  const builderConfig = getBuilderConfig();
+
+  if (isAddressOnly(privateKeyOrAddress)) {
+    // MetaMask mode — use window.ethereum as transport, MetaMask signs
+    if (typeof window === "undefined" || !window.ethereum) {
+      throw new Error("MetaMask not available for relay signing");
+    }
+    const wallet = createWalletClient({
+      account: privateKeyOrAddress as Hex,
+      chain: polygon,
+      transport: custom(window.ethereum),
+    });
+    return new RelayClient(
+      RELAYER_URL,
+      CHAIN_ID,
+      wallet,
+      builderConfig as any,
+      RelayerTxType.PROXY,
+    );
+  }
+
+  // Private key mode
+  const pk = (privateKeyOrAddress.startsWith("0x") ? privateKeyOrAddress : `0x${privateKeyOrAddress}`) as Hex;
   const account = privateKeyToAccount(pk);
   const wallet = createWalletClient({
     account,
     chain: polygon,
     transport: http(getRpcUrl()),
   });
-  const builderConfig = getBuilderConfig();
   return new RelayClient(
     RELAYER_URL,
     CHAIN_ID,
@@ -241,14 +280,24 @@ async function relayApproval(
 
 // Direct on-chain fallback (if relayer fails)
 async function sendDirectTx(
-  privateKey: string,
+  privateKeyOrAddress: string,
   contractAddr: string,
   abi: string[],
   method: string,
   args: unknown[],
 ): Promise<TxResult> {
   try {
-    const signer = new Wallet(privateKey, getProvider());
+    let signer;
+    if (isAddressOnly(privateKeyOrAddress)) {
+      // MetaMask mode — get signer from window.ethereum
+      if (typeof window === "undefined" || !window.ethereum) {
+        throw new Error("MetaMask not available for direct tx signing");
+      }
+      const provider = new BrowserProvider(window.ethereum);
+      signer = await provider.getSigner(privateKeyOrAddress);
+    } else {
+      signer = new Wallet(privateKeyOrAddress, getProvider());
+    }
     const contract = new Contract(contractAddr, abi, signer);
     console.log(`[direct-client] Sending ${method} to ${contractAddr}...`);
     const tx = await contract[method](...args);
@@ -327,6 +376,48 @@ export async function approveConditionalTokensForNegRiskAdapter(privateKey: stri
     return sendDirectTx(privateKey, CONTRACTS.conditionalTokens, [
       "function setApprovalForAll(address operator, bool approved)",
     ], "setApprovalForAll", [CONTRACTS.negRiskAdapter, true]);
+  }
+}
+
+// ─── Withdraw USDC from Proxy → EOA (via relayer, gasless) ───
+
+export async function withdrawFromProxy(
+  privateKeyOrAddress: string,
+  amountUsdc: string,
+): Promise<TxResult> {
+  const isAddr = isAddressOnly(privateKeyOrAddress);
+  const eoaAddress = isAddr ? privateKeyOrAddress : new Wallet(privateKeyOrAddress).address;
+  const proxyAddress = deriveProxyWallet(eoaAddress, CONTRACTS.proxyFactory);
+
+  const rawAmount = BigInt(Math.round(Number(amountUsdc) * 1e6));
+  if (rawAmount <= BigInt(0)) {
+    return { success: false, error: "Amount must be greater than 0", method: "relayer" };
+  }
+
+  // Check proxy has enough USDC
+  const provider = getProvider();
+  const usdc = new Contract(CONTRACTS.collateral, ERC20_READ_ABI, provider);
+  const balance = await usdc.balanceOf(proxyAddress) as bigint;
+  if (balance < rawAmount) {
+    const available = (Number(balance) / 1e6).toFixed(2);
+    return { success: false, error: `Insufficient proxy USDC.e balance. Available: ${available}`, method: "relayer" };
+  }
+
+  // Build transfer tx from proxy → EOA
+  const data = encodeFunctionData({
+    abi: ERC20_TRANSFER_ABI,
+    functionName: "transfer",
+    args: [eoaAddress as Hex, rawAmount],
+  });
+  const tx: RelayTx = { to: CONTRACTS.collateral, data, value: "0" };
+
+  try {
+    return await relayApproval(privateKeyOrAddress, [tx], `withdraw ${amountUsdc} USDC → EOA`);
+  } catch {
+    // Fallback: direct tx (only works with private key — proxy must have POL for gas)
+    return sendDirectTx(privateKeyOrAddress, CONTRACTS.collateral, [
+      "function transfer(address to, uint256 amount) returns (bool)",
+    ], "transfer", [eoaAddress, rawAmount]);
   }
 }
 
