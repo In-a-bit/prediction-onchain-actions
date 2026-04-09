@@ -69,6 +69,10 @@ interface BuilderState {
   selectedMarket: ParsedMarket | null;
   selectedOutcomeIndex: number;
 
+  // Order book prices
+  bestBid: number;
+  bestAsk: number;
+
   // Data
   orders: OpenOrder[];
   trades: Trade[];
@@ -108,6 +112,8 @@ interface Position {
 interface BuilderContextType extends BuilderState {
   // signerKey: address for MetaMask, privateKey for PK mode — pass to trading-client functions
   signerKey: string;
+  bestBid: number;
+  bestAsk: number;
   connect: (privateKey: string) => Promise<void>;
   connectMM: () => Promise<void>;
   disconnect: () => void;
@@ -146,6 +152,8 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
     walletBalances: null,
     selectedMarket: null,
     selectedOutcomeIndex: 0,
+    bestBid: 0,
+    bestAsk: 0,
     orders: [],
     trades: [],
     positions: [],
@@ -275,6 +283,8 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
       walletBalances: null,
       selectedMarket: null,
       selectedOutcomeIndex: 0,
+      bestBid: 0,
+      bestAsk: 0,
       orders: [],
       trades: [],
       positions: [],
@@ -419,6 +429,44 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
       refreshPositions();
     }
   }, [state.connected, !!state.walletBalances]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll order book prices every 5 seconds when a market is selected
+  useEffect(() => {
+    if (!state.selectedMarket) {
+      setState((s) => ({ ...s, bestBid: 0, bestAsk: 0 }));
+      return;
+    }
+    const tokenId = state.selectedMarket.clobTokenIds[state.selectedOutcomeIndex];
+    if (!tokenId) {
+      setState((s) => ({ ...s, bestBid: 0, bestAsk: 0 }));
+      return;
+    }
+
+    // Reset prices when market/outcome changes, then fetch immediately
+    setState((s) => ({ ...s, bestBid: 0, bestAsk: 0 }));
+
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const { fetchBestPrices } = await import("@/lib/polymarket/trading-client");
+        const { bestBid, bestAsk } = await fetchBestPrices(tokenId);
+        if (!cancelled) {
+          setState((s) => ({ ...s, bestBid, bestAsk }));
+        }
+      } catch (e) {
+        console.error("[provider] fetchBestPrices error:", e);
+      }
+    }
+
+    poll();
+    const interval = setInterval(poll, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [state.selectedMarket, state.selectedOutcomeIndex]);
 
   // WebSocket for real-time order/trade/position updates
   const wsRef = useRef<PolymarketUserWs | null>(null);

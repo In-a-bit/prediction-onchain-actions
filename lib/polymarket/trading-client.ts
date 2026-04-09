@@ -5,6 +5,19 @@ import { deriveProxyWallet } from "@polymarket/builder-relayer-client/dist/build
 import { Wallet, BrowserProvider } from "ethers";
 import { CLOB_API_HOST, CHAIN_ID, CONTRACTS } from "./config";
 
+const CLOB_API = "https://clob.polymarket.com";
+
+export async function fetchBestPrices(tokenId: string): Promise<{ bestBid: number; bestAsk: number }> {
+  const res = await fetch(`${CLOB_API}/book?token_id=${tokenId}`);
+  if (!res.ok) return { bestBid: 0, bestAsk: 0 };
+  const book = await res.json();
+  const bids = book.bids || [];
+  const asks = book.asks || [];
+  const bestBid = bids.length > 0 ? Math.max(...bids.map((b: any) => Number(b.price))) : 0;
+  const bestAsk = asks.length > 0 ? Math.min(...asks.map((a: any) => Number(a.price))) : 0;
+  return { bestBid, bestAsk };
+}
+
 // Signer interface expected by ClobClient (ethers v5 style)
 interface ClobSigner {
   _signTypedData: (

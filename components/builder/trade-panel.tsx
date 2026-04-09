@@ -23,6 +23,8 @@ export function TradePanel() {
     addLocalOrder,
     sellIntent,
     setSellIntent,
+    bestBid,
+    bestAsk,
   } = useBuilder();
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -63,12 +65,20 @@ export function TradePanel() {
   const tokenPosition = positions.find((p: any) => String(p.asset) === tokenId);
   const tokenBalance = tokenPosition ? Number(tokenPosition.size || tokenPosition.amount || 0) : 0;
 
-  const estimatedCost =
-    orderType === "limit" && price && size
-      ? (Number(price) * Number(size)).toFixed(2)
-      : size
-        ? Number(size).toFixed(2)
-        : "0.00";
+  const marketPrice = side === "BUY" ? bestAsk : bestBid;
+
+  const estimatedCost = (() => {
+    if (orderType === "limit" && price && size) {
+      return (Number(price) * Number(size)).toFixed(2);
+    }
+    if (orderType === "market" && size) {
+      if (marketPrice > 0) {
+        return (Number(size) * marketPrice).toFixed(2);
+      }
+      return "\u2014";
+    }
+    return "0.00";
+  })();
 
   async function handleSubmit() {
     if (!connected || !creds || !selectedMarket) return;
@@ -103,6 +113,7 @@ export function TradePanel() {
           tickSize: selectedMarket.tickSize,
           negRisk: selectedMarket.negRisk,
           feeRateBps: feeRateBps !== "" ? Number(feeRateBps) : undefined,
+          price: marketPrice > 0 ? marketPrice : undefined,
         });
       }
 
@@ -263,9 +274,7 @@ export function TradePanel() {
 
       {/* Size input */}
       <div className="mb-3">
-        <Label className="mb-1 text-xs text-zinc-500">
-          {orderType === "market" && side === "BUY" ? "Amount (USDC)" : "Shares"}
-        </Label>
+        <Label className="mb-1 text-xs text-zinc-500">Shares</Label>
         <Input
           type="number"
           step="1"
@@ -275,6 +284,13 @@ export function TradePanel() {
           onChange={(e) => setSize(e.target.value)}
           className="h-9 border-zinc-700 bg-zinc-800 font-mono text-sm text-zinc-200"
         />
+        {orderType === "market" && (
+          <div className="mt-1 text-xs text-zinc-500">
+            Market price: {(side === "BUY" ? bestAsk : bestBid) > 0
+              ? `${(side === "BUY" ? bestAsk : bestBid).toFixed(4)}\u00A2`
+              : "No orders available"}
+          </div>
+        )}
       </div>
 
       {/* Max Fee (bps) */}
@@ -301,7 +317,7 @@ export function TradePanel() {
       <div className="mb-4 flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
         <span className="text-xs text-zinc-500">Est. Cost</span>
         <span className="font-mono text-sm font-medium text-zinc-300">
-          ${estimatedCost}
+          {estimatedCost === "\u2014" ? "\u2014" : `$${estimatedCost}`}
         </span>
       </div>
 
