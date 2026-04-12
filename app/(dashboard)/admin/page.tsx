@@ -10,6 +10,7 @@ import {
   getEventBySlug,
   createEvent,
   createMarket,
+  umaPropose,
   listRelayerWallets,
   createRelayerWallet,
   getSmartAccount,
@@ -444,7 +445,7 @@ function EventsTab({
                         {detailLoading ? (
                           <p className="text-xs text-zinc-500">Loading...</p>
                         ) : eventDetail ? (
-                          <EventDetail event={eventDetail} />
+                          <EventDetail event={eventDetail} dpmUrl={dpmUrl} />
                         ) : (
                           <p className="text-xs text-zinc-500">
                             No detail available
@@ -486,7 +487,7 @@ function EventsTab({
   );
 }
 
-function EventDetail({ event }: { event: any }) {
+function EventDetail({ event, dpmUrl }: { event: any; dpmUrl: string }) {
   const markets = event.markets || event.Markets || [];
   return (
     <div className="space-y-4 text-xs">
@@ -542,71 +543,179 @@ function EventDetail({ event }: { event: any }) {
           <h4 className="mb-2 font-semibold">Markets ({markets.length})</h4>
           <div className="space-y-3">
             {markets.map((m: any, i: number) => (
-              <div
-                key={m.id || m.ID || i}
-                className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-950"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="font-medium">
-                    {m.question || m.Question || "No question"}
-                  </span>
-                  <StatusBadge
-                    status={
-                      m.deployment_status ||
-                      m.deploymentStatus ||
-                      (m.ready ? "DEPLOYED" : m.deploying ? "DEPLOYING" : "PENDING")
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                  {[
-                    ["ID", m.id ?? m.ID],
-                    ["External ID", m.external_id ?? m.externalId],
-                    ["Condition ID", m.condition_id ?? m.conditionId],
-                    ["Question ID", m.question_id ?? m.questionID],
-                    ["Slug", m.slug],
-                    ["Active", String(m.active)],
-                    ["Closed", String(m.closed)],
-                    ["Funded", String(m.funded)],
-                    ["Approved", String(m.approved)],
-                    ["Accepting Orders", String(m.accepting_orders ?? m.acceptingOrders)],
-                    ["Activation", m.activation],
-                    ["Neg Risk", String(m.neg_risk ?? m.negRisk)],
-                    ["Min Tick Size", m.order_price_min_tick_size ?? m.minimumTickSize],
-                    ["Min Order Size", m.order_min_size ?? m.minimumOrderSize],
-                    ["RFQ Enabled", String(m.rfq_enabled ?? m.rfqEnabled)],
-                  ]
-                    .filter(([, v]) => v !== undefined && v !== null && v !== "")
-                    .map(([label, value]) => (
-                      <div key={label as string}>
-                        <span className="text-zinc-500">{label}: </span>
-                        <span className="font-mono">{String(value)}</span>
-                      </div>
-                    ))}
-                </div>
-                {m.outcomePrices && (
-                  <div className="mt-2">
-                    <span className="text-zinc-500">Prices: </span>
-                    <span className="font-mono">{m.outcomePrices}</span>
-                  </div>
-                )}
-                {m.outcomes && (
-                  <div>
-                    <span className="text-zinc-500">Outcomes: </span>
-                    <span className="font-mono">{JSON.stringify(m.outcomes)}</span>
-                  </div>
-                )}
-                {(m.clobTokenIds || m.clob_token_ids) && (
-                  <div>
-                    <span className="text-zinc-500">CLOB Token IDs: </span>
-                    <span className="font-mono break-all">
-                      {JSON.stringify(m.clobTokenIds || m.clob_token_ids)}
-                    </span>
-                  </div>
-                )}
-              </div>
+              <MarketCard key={m.id || m.ID || i} market={m} dpmUrl={dpmUrl} />
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
+  const [showPropose, setShowPropose] = useState(false);
+  const [proposeForm, setProposeForm] = useState({ proposer_address: "", proposed_price: "" });
+  const [proposeLoading, setProposeLoading] = useState(false);
+  const [proposeError, setProposeError] = useState<string | null>(null);
+  const [proposeResult, setProposeResult] = useState<any | null>(null);
+
+  const marketExternalId: string = m.id ?? m.ID ?? "";
+  const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
+
+  async function handlePropose() {
+    if (!marketExternalId) {
+      setProposeError("Market has no external ID — cannot submit proposal");
+      return;
+    }
+    setProposeLoading(true);
+    setProposeError(null);
+    setProposeResult(null);
+
+    const res = await umaPropose(dpmUrl, {
+      market_id: marketExternalId,
+      proposer_address: proposeForm.proposer_address,
+      proposed_price: proposeForm.proposed_price,
+    });
+    if (res.success) {
+      setProposeResult(res.data);
+    } else {
+      setProposeError(res.error);
+    }
+    setProposeLoading(false);
+  }
+
+  const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
+
+  return (
+    <div className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-950">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="font-medium">
+          {m.question || m.Question || "No question"}
+        </span>
+        <StatusBadge
+          status={
+            m.deployment_status ||
+            m.deploymentStatus ||
+            (m.ready ? "DEPLOYED" : m.deploying ? "DEPLOYING" : "PENDING")
+          }
+        />
+        {umaStatus && (
+          <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+            UMA: {umaStatus}
+          </Badge>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+        {[
+          ["External ID", marketExternalId],
+          ["Condition ID", m.condition_id ?? m.conditionId],
+          ["Question ID", m.question_id ?? m.questionID],
+          ["Slug", m.slug],
+          ["Active", String(m.active)],
+          ["Closed", String(m.closed)],
+          ["Funded", String(m.funded)],
+          ["Approved", String(m.approved)],
+          ["Accepting Orders", String(m.accepting_orders ?? m.acceptingOrders)],
+          ["Activation", m.activation],
+          ["Neg Risk", String(m.neg_risk ?? m.negRisk)],
+          ["Min Tick Size", m.order_price_min_tick_size ?? m.minimumTickSize],
+          ["Min Order Size", m.order_min_size ?? m.minimumOrderSize],
+          ["RFQ Enabled", String(m.rfq_enabled ?? m.rfqEnabled)],
+        ]
+          .filter(([, v]) => v !== undefined && v !== null && v !== "")
+          .map(([label, value]) => (
+            <div key={label as string}>
+              <span className="text-zinc-500">{label}: </span>
+              <span className="font-mono">{String(value)}</span>
+            </div>
+          ))}
+      </div>
+      {m.outcomePrices && (
+        <div className="mt-2">
+          <span className="text-zinc-500">Prices: </span>
+          <span className="font-mono">{m.outcomePrices}</span>
+        </div>
+      )}
+      {m.outcomes && (
+        <div>
+          <span className="text-zinc-500">Outcomes: </span>
+          <span className="font-mono">{JSON.stringify(m.outcomes)}</span>
+        </div>
+      )}
+      {(m.clobTokenIds || m.clob_token_ids) && (
+        <div>
+          <span className="text-zinc-500">CLOB Token IDs: </span>
+          <span className="font-mono break-all">
+            {JSON.stringify(m.clobTokenIds || m.clob_token_ids)}
+          </span>
+        </div>
+      )}
+
+      {/* UMA Actions */}
+      <div className="mt-3 flex gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px]"
+          onClick={() => {
+            setShowPropose((s) => !s);
+            setProposeError(null);
+            setProposeResult(null);
+          }}
+        >
+          {showPropose ? "Cancel" : "Propose"}
+        </Button>
+      </div>
+
+      {showPropose && (
+        <div className="mt-3 space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+            Submit a price proposal via UMA Optimistic Oracle
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[11px] font-medium">
+                Proposer Address <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="0x..."
+                value={proposeForm.proposer_address}
+                onChange={(e) => setProposeForm((f) => ({ ...f, proposer_address: e.target.value.trim() }))}
+                className="mt-1 h-7 font-mono text-[11px]"
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] font-medium">
+                Proposed Price <span className="text-red-500">*</span>
+              </Label>
+              <select
+                value={proposeForm.proposed_price}
+                onChange={(e) => setProposeForm((f) => ({ ...f, proposed_price: e.target.value }))}
+                className="mt-1 h-7 w-full rounded-md border border-zinc-200 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="">Select...</option>
+                <option value="1000000000000000000">YES (1e18)</option>
+                <option value="0">NO (0)</option>
+                <option value="500000000000000000">UNKNOWN / 50-50 (0.5e18)</option>
+              </select>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="h-7 w-full text-[11px]"
+            onClick={handlePropose}
+            disabled={!canPropose}
+          >
+            {proposeLoading ? "Submitting..." : "Submit Proposal"}
+          </Button>
+          {proposeError && <ErrorBox error={proposeError} />}
+          {proposeResult && (
+            <SuccessBox>
+              <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
+                Proposal submitted (workflow: {proposeResult.workflow_id})
+              </p>
+            </SuccessBox>
+          )}
         </div>
       )}
     </div>

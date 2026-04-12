@@ -218,6 +218,34 @@ export async function signalBalanceAdded(
   }
 }
 
+// --- UMA Actions ---
+
+export async function umaPropose(
+  dpmUrl: string,
+  payload: { market_id: string; proposer_address: string; proposed_price: string }
+): Promise<
+  | { success: true; data: any }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/markets/uma/propose`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to submit UMA propose" };
+  }
+}
+
 // --- Contracts ---
 
 export async function listContracts(
