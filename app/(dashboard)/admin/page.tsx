@@ -11,6 +11,7 @@ import {
   createEvent,
   createMarket,
   umaPropose,
+  umaResolve,
   listRelayerWallets,
   createRelayerWallet,
   getSmartAccount,
@@ -559,6 +560,10 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [proposeResult, setProposeResult] = useState<any | null>(null);
 
+  const [resolveLoading, setResolveLoading] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolveResult, setResolveResult] = useState<any | null>(null);
+
   const marketExternalId: string = m.id ?? m.ID ?? "";
   const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
 
@@ -582,6 +587,24 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
       setProposeError(res.error);
     }
     setProposeLoading(false);
+  }
+
+  async function handleResolve() {
+    if (!marketExternalId) {
+      setResolveError("Market has no external ID — cannot submit resolve");
+      return;
+    }
+    setResolveLoading(true);
+    setResolveError(null);
+    setResolveResult(null);
+
+    const res = await umaResolve(dpmUrl, { market_id: marketExternalId });
+    if (res.success) {
+      setResolveResult(res.data);
+    } else {
+      setResolveError(res.error);
+    }
+    setResolveLoading(false);
   }
 
   const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
@@ -652,7 +675,7 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
       )}
 
       {/* UMA Actions */}
-      <div className="mt-3 flex gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
         <Button
           variant="outline"
           size="sm"
@@ -665,6 +688,21 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
         >
           {showPropose ? "Cancel" : "Propose"}
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px]"
+          onClick={handleResolve}
+          disabled={resolveLoading}
+        >
+          {resolveLoading ? "Resolving..." : "Resolve"}
+        </Button>
+        {resolveError && <span className="text-[11px] text-red-600">{resolveError}</span>}
+        {resolveResult && (
+          <span className="text-[11px] text-green-600">
+            Resolve submitted (workflow: {resolveResult.workflow_id})
+          </span>
+        )}
       </div>
 
       {showPropose && (
@@ -933,6 +971,7 @@ function CreateMarketModal({
     order_min_size: "",
     uma_bond: "",
     uma_reward: "",
+    liveness: "",
     seconds_delay: "",
   });
   const [loading, setLoading] = useState(false);
@@ -976,6 +1015,7 @@ function CreateMarketModal({
     if (form.order_min_size) payload.order_min_size = parseInt(form.order_min_size, 10);
     if (form.uma_bond) payload.uma_bond = form.uma_bond;
     if (form.uma_reward) payload.uma_reward = form.uma_reward;
+    if (form.liveness) payload.liveness = form.liveness;
     if (form.seconds_delay) payload.seconds_delay = parseFloat(form.seconds_delay);
 
     const res = await createMarket(dpmUrl, payload);
@@ -1127,6 +1167,11 @@ function CreateMarketModal({
               <div>
                 <Label className="text-xs font-medium">UMA Reward</Label>
                 <Input placeholder="0" value={form.uma_reward} onChange={(e) => setField("uma_reward", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Liveness (seconds)</Label>
+                <Input placeholder="7200" value={form.liveness} onChange={(e) => setField("liveness", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+                <p className="mt-0.5 text-[10px] text-zinc-400">Defaults to env value (7200s / 2 hours) if empty.</p>
               </div>
             </div>
 

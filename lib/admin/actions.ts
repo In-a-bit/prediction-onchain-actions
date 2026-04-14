@@ -246,6 +246,32 @@ export async function umaPropose(
   }
 }
 
+export async function umaResolve(
+  dpmUrl: string,
+  payload: { market_id: string }
+): Promise<
+  | { success: true; data: any }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/markets/uma/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to submit UMA resolve" };
+  }
+}
+
 // --- Contracts ---
 
 export async function listContracts(
