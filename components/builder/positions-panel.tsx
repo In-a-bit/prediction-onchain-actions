@@ -52,6 +52,7 @@ export function PositionsPanel() {
   const [sellingAsset, setSellingAsset] = useState<string | null>(null);
   const [sellResult, setSellResult] = useState<{ asset: string; success: boolean; message: string } | null>(null);
   const [loadingMarket, setLoadingMarket] = useState<string | null>(null);
+  const [openingMarket, setOpeningMarket] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -59,11 +60,23 @@ export function PositionsPanel() {
   const [marketNames, setMarketNames] = useState<Record<string, { question: string; slug: string }>>({});
   const fetchingRef = useRef<Set<string>>(new Set());
 
-  // Resolve market names for open orders
+  // Resolve market names for orders, trades, and positions missing a title.
+  // Data-api trades/positions already include `title` + `slug` inline (keyed by `conditionId`);
+  // CLOB orders only give us `market` (a conditionId), so those always need a lookup.
   useEffect(() => {
-    if (orders.length === 0) return;
-    const conditionIds = [...new Set(orders.map((o) => o.market).filter(Boolean))];
-    const missing = conditionIds.filter((id) => !marketNames[id] && !fetchingRef.current.has(id));
+    const needed = new Set<string>();
+    for (const o of orders) if (o.market) needed.add(o.market);
+    for (const t of trades) {
+      const cid = String((t as any).conditionId || t.market || "");
+      const hasTitle = !!((t as any).title || (t as any).question);
+      if (cid && !hasTitle) needed.add(cid);
+    }
+    for (const p of positions) {
+      const cid = String((p as any).conditionId || p.market || "");
+      const hasTitle = !!((p as any).title || (p as any).question);
+      if (cid && !hasTitle) needed.add(cid);
+    }
+    const missing = [...needed].filter((id) => !marketNames[id] && !fetchingRef.current.has(id));
     if (missing.length === 0) return;
 
     for (const cid of missing) {
@@ -79,7 +92,27 @@ export function PositionsPanel() {
         fetchingRef.current.delete(cid);
       });
     }
-  }, [orders, marketNames]);
+  }, [orders, trades, positions, marketNames]);
+
+  async function handleOpenMarket(conditionId: string, slugHint?: string, outcomeAssetId?: string) {
+    if (!conditionId && !slugHint) return;
+    const key = conditionId || slugHint || "";
+    setOpeningMarket(key);
+    try {
+      const slug = slugHint || marketNames[conditionId]?.slug;
+      const market = slug
+        ? await fetchMarketBySlug(slug)
+        : await fetchMarketByConditionId(conditionId);
+      if (!market) return;
+      selectMarket(market);
+      if (outcomeAssetId) {
+        const idx = market.clobTokenIds.indexOf(outcomeAssetId);
+        if (idx >= 0) setSelectedOutcomeIndex(idx);
+      }
+    } finally {
+      setOpeningMarket(null);
+    }
+  }
 
   // Auto-refresh every 3s (only starts once walletBalances is available)
   useEffect(() => {
@@ -254,12 +287,24 @@ export function PositionsPanel() {
                 const cost = size * avgPrice;
                 const pnl = value - cost;
                 const pnlPct = cost > 0 ? ((pnl / cost) * 100) : 0;
-                const title = String(pos.title || (pos as any).question || pos.market || pos.conditionId || "—");
+                const cid = String(pos.conditionId || pos.market || "");
+                const cached = marketNames[cid];
+                const title = String(
+                  pos.title || (pos as any).question || cached?.question || (cid ? truncateId(cid) : "—")
+                );
+                const slug = String((pos as any).slug || cached?.slug || "");
 
                 return (
                   <tr key={String(pos.asset || pos.conditionId || i)} className="border-b border-zinc-800/50 hover:bg-zinc-900/50">
-                    <td className="max-w-[200px] truncate px-3 py-2 text-zinc-300" title={title}>
-                      {title.length > 40 ? title.slice(0, 40) + "..." : title}
+                    <td className="max-w-[220px] px-3 py-2 text-zinc-300" title={title}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMarket(cid, slug, String(pos.asset || ""))}
+                        disabled={openingMarket === cid || (!cid && !slug)}
+                        className="max-w-full truncate text-left text-zinc-200 hover:text-sky-300 hover:underline disabled:opacity-60"
+                      >
+                        {openingMarket === cid ? "Opening..." : title.length > 40 ? title.slice(0, 40) + "..." : title}
+                      </button>
                     </td>
                     <td className="px-3 py-2">
                       <Badge
@@ -297,6 +342,15 @@ export function PositionsPanel() {
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenMarket(cid, slug, String(pos.asset || ""))}
+                          disabled={openingMarket === cid || (!cid && !slug)}
+                          className="h-6 px-2 text-[10px] text-sky-400 hover:bg-sky-900/30 hover:text-sky-300"
+                        >
+                          {openingMarket === cid ? "..." : "Open"}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -362,17 +416,26 @@ export function PositionsPanel() {
                 return (
                 <tr key={order.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/50">
                   <td
-                    className="max-w-[180px] truncate px-3 py-2 text-zinc-300"
+                    className="max-w-[200px] px-3 py-2 text-zinc-300"
                     title={mInfo ? `${mInfo.question}\nSlug: ${mInfo.slug}\nCondition: ${order.market}` : order.market}
                   >
-                    {mInfo ? (
-                      <div>
-                        <span className="block truncate">{marketLabel.length > 35 ? marketLabel.slice(0, 35) + "..." : marketLabel}</span>
-                        <span className="block font-mono text-[10px] text-zinc-600">{mInfo.slug || truncateId(order.market)}</span>
-                      </div>
-                    ) : (
-                      <span className="font-mono text-zinc-500">{truncateId(order.market)}</span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMarket(order.market, mInfo?.slug, order.asset_id)}
+                      disabled={openingMarket === order.market || !order.market}
+                      className="block max-w-full text-left hover:text-sky-300 hover:underline disabled:opacity-60"
+                    >
+                      {openingMarket === order.market ? (
+                        <span className="text-zinc-400">Opening...</span>
+                      ) : mInfo ? (
+                        <>
+                          <span className="block truncate">{marketLabel.length > 35 ? marketLabel.slice(0, 35) + "..." : marketLabel}</span>
+                          <span className="block font-mono text-[10px] text-zinc-600">{mInfo.slug || truncateId(order.market)}</span>
+                        </>
+                      ) : (
+                        <span className="font-mono text-zinc-500">{truncateId(order.market)}</span>
+                      )}
+                    </button>
                   </td>
                   <td className="px-3 py-2">
                     <Badge
@@ -402,15 +465,26 @@ export function PositionsPanel() {
                     {formatTime(order.created_at)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCancel(order.id)}
-                      disabled={cancellingId === order.id}
-                      className="h-6 px-2 text-[10px] text-red-400 hover:bg-red-900/30 hover:text-red-300"
-                    >
-                      {cancellingId === order.id ? "..." : "Cancel"}
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenMarket(order.market, mInfo?.slug, order.asset_id)}
+                        disabled={openingMarket === order.market || !order.market}
+                        className="h-6 px-2 text-[10px] text-sky-400 hover:bg-sky-900/30 hover:text-sky-300"
+                      >
+                        {openingMarket === order.market ? "..." : "Open"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCancel(order.id)}
+                        disabled={cancellingId === order.id}
+                        className="h-6 px-2 text-[10px] text-red-400 hover:bg-red-900/30 hover:text-red-300"
+                      >
+                        {cancellingId === order.id ? "..." : "Cancel"}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
                 );
@@ -430,6 +504,7 @@ export function PositionsPanel() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-500">
+                <th className="px-3 py-2 text-left font-medium">Market</th>
                 <th className="px-3 py-2 text-left font-medium">Side</th>
                 <th className="px-3 py-2 text-left font-medium">Outcome</th>
                 <th className="px-3 py-2 text-right font-medium">Price</th>
@@ -437,11 +512,32 @@ export function PositionsPanel() {
                 <th className="px-3 py-2 text-left font-medium">Role</th>
                 <th className="px-3 py-2 text-left font-medium">Time</th>
                 <th className="px-3 py-2 text-left font-medium">Tx</th>
+                <th className="px-3 py-2 text-right font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {trades.map((trade) => (
-                <tr key={trade.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/50">
+              {trades.map((trade, i) => {
+                const cid = String((trade as any).conditionId || trade.market || "");
+                const assetId = String((trade as any).asset || trade.asset_id || "");
+                const slug = String((trade as any).slug || marketNames[cid]?.slug || "");
+                const mInfo = marketNames[cid];
+                const tradeTitle = String(trade.title || mInfo?.question || (cid ? truncateId(cid) : "—"));
+                return (
+                <tr key={`${trade.id || "t"}-${i}`} className="border-b border-zinc-800/50 hover:bg-zinc-900/50">
+                  <td className="max-w-[200px] px-3 py-2 text-zinc-300" title={tradeTitle}>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMarket(cid, slug, assetId)}
+                      disabled={openingMarket === cid || (!cid && !slug)}
+                      className="block max-w-full truncate text-left hover:text-sky-300 hover:underline disabled:opacity-60"
+                    >
+                      {openingMarket === cid
+                        ? "Opening..."
+                        : tradeTitle.length > 35
+                          ? tradeTitle.slice(0, 35) + "..."
+                          : tradeTitle}
+                    </button>
+                  </td>
                   <td className="px-3 py-2">
                     <Badge
                       variant="outline"
@@ -485,8 +581,20 @@ export function PositionsPanel() {
                       </a>
                     )}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenMarket(cid, slug, assetId)}
+                      disabled={openingMarket === cid || (!cid && !slug)}
+                      className="h-6 px-2 text-[10px] text-sky-400 hover:bg-sky-900/30 hover:text-sky-300"
+                    >
+                      {openingMarket === cid ? "..." : "Open"}
+                    </Button>
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

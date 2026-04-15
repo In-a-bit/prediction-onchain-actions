@@ -109,24 +109,34 @@ export async function fetchEvents(offset = 0, tag?: string, search?: string): Pr
   return res.json();
 }
 
+// Gamma filters to open markets by default; passing closed=true returns closed markets only.
+// To support trades/positions on resolved markets, probe both and return whichever hits.
+async function gammaFetchMarkets(extra: Record<string, string>): Promise<GammaMarket[]> {
+  const base = { path: "markets", limit: "1", ...extra };
+  const tryFetch = async (params: Record<string, string>) => {
+    const res = await fetch(`${GAMMA_PROXY}?${new URLSearchParams(params)}`);
+    if (!res.ok) return [] as GammaMarket[];
+    const data = await res.json();
+    return Array.isArray(data) ? (data as GammaMarket[]) : [];
+  };
+  const open = await tryFetch(base);
+  if (open.length > 0) return open;
+  return tryFetch({ ...base, closed: "true" });
+}
+
 export async function fetchMarketBySlug(slug: string): Promise<ParsedMarket | null> {
-  const params = new URLSearchParams({ path: "markets", slug, limit: "1" });
-  const res = await fetch(`${GAMMA_PROXY}?${params}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const arr = Array.isArray(data) ? data : [];
+  const arr = await gammaFetchMarkets({ slug });
   if (arr.length === 0) return null;
-  return parseMarket(arr[0] as GammaMarket);
+  return parseMarket(arr[0]);
 }
 
 export async function fetchMarketByConditionId(conditionId: string): Promise<ParsedMarket | null> {
-  const params = new URLSearchParams({ path: "markets", condition_id: conditionId, limit: "1" });
-  const res = await fetch(`${GAMMA_PROXY}?${params}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const arr = Array.isArray(data) ? data : [];
+  // Gamma API uses `condition_ids` (plural). The singular `condition_id` is silently
+  // ignored and returns an unfiltered list, so this must stay plural.
+  const arr = await gammaFetchMarkets({ condition_ids: conditionId });
   if (arr.length === 0) return null;
-  return parseMarket(arr[0] as GammaMarket);
+  const hit = arr.find((m) => m.conditionId === conditionId) || arr[0];
+  return parseMarket(hit);
 }
 
 export async function getPositions(proxyAddress: string): Promise<any[]> {
