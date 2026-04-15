@@ -336,3 +336,103 @@ export async function getCollateralBalance(
     return { success: false, error: error.message || "Failed to get collateral balance" };
   }
 }
+
+// --- Users (admin listing) ---
+
+export async function listUsers(
+  dpmUrl: string,
+  params: {
+    limit?: string;
+    offset?: string;
+    search?: string;
+    address?: string;
+    proxy_wallet?: string;
+    has_proxy?: string;
+  }
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const url = new URL("/users", dpmUrl);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") {
+        url.searchParams.set(key, value);
+      }
+    }
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to list users" };
+  }
+}
+
+// --- Balance sync (admin refresh) ---
+
+export async function backfillCollateral(
+  dpmUrl: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/collateral/backfill`, {
+      method: "POST",
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to backfill collateral balances" };
+  }
+}
+
+export async function syncCollateralUser(
+  dpmUrl: string,
+  userId: number
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/collateral/sync/${userId}`, {
+      method: "POST",
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to sync user balance" };
+  }
+}
+
+// --- Conditional tokens ---
+
+export async function getConditionalTokenBalance(
+  dpmUrl: string,
+  address: string,
+  tokenId: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const url = new URL("/conditional-tokens/balance", dpmUrl);
+    url.searchParams.set("address", address);
+    url.searchParams.set("token_id", tokenId);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to get conditional token balance" };
+  }
+}

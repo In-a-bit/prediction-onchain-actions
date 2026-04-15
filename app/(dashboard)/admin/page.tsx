@@ -18,13 +18,23 @@ import {
   getCollateralBalance,
   listContracts,
   createContract,
+  listUsers,
+  backfillCollateral,
+  syncCollateralUser,
+  getConditionalTokenBalance,
 } from "@/lib/admin/actions";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = "events" | "relayer-wallets" | "smart-account" | "collateral" | "contracts";
+type Tab =
+  | "events"
+  | "relayer-wallets"
+  | "smart-account"
+  | "collateral"
+  | "balances"
+  | "contracts";
 
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
 const DEFAULT_DPM_URL = "http://localhost:8086";
@@ -1759,6 +1769,461 @@ function CollateralBalanceTab({ dpmUrl }: { dpmUrl: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Balances Tab — user list with USDC balance / allowance + refresh actions
+// ---------------------------------------------------------------------------
+
+type UserRow = {
+  id: number;
+  address: string;
+  proxy_wallet: string;
+  name: string | null;
+  pseudonym: string | null;
+  email: string | null;
+  balance: {
+    usdc_balance: string;
+    usdc_allowance: string | null;
+    block_number: number;
+    updated_at: string;
+  } | null;
+};
+
+const USDC_DECIMALS = 6;
+
+function formatUsdc(raw: string | null | undefined): string {
+  if (!raw) return "—";
+  try {
+    const n = BigInt(raw);
+    const base = BigInt(10) ** BigInt(USDC_DECIMALS);
+    const whole = n / base;
+    const frac = n % base;
+    const fracStr = frac.toString().padStart(USDC_DECIMALS, "0").slice(0, 4);
+    return `${whole.toLocaleString()}.${fracStr}`;
+  } catch {
+    return raw;
+  }
+}
+
+function shortAddr(addr: string | null | undefined): string {
+  if (!addr) return "—";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
+  // --- List state ---
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 400);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 20;
+
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // --- Per-row sync state ---
+  const [syncing, setSyncing] = useState<Record<number, boolean>>({});
+  const [rowError, setRowError] = useState<Record<number, string>>({});
+
+  // --- Bulk backfill state ---
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<any | null>(null);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
+
+  // --- Ad-hoc lookup state ---
+  const [lookupAddress, setLookupAddress] = useState("");
+  const [lookupTokenId, setLookupTokenId] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [collateralResult, setCollateralResult] = useState<any | null>(null);
+  const [ctfResult, setCtfResult] = useState<any | null>(null);
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await listUsers(dpmUrl, {
+      limit: String(PAGE_SIZE),
+      offset: String(page * PAGE_SIZE),
+      search: debouncedSearch,
+      has_proxy: "true",
+    });
+    if (res.success) {
+      setUsers(res.data.data || []);
+      setTotal(res.data.total || 0);
+    } else {
+      setError(res.error);
+      setUsers([]);
+      setTotal(0);
+    }
+    setLoading(false);
+  }, [dpmUrl, page, debouncedSearch]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  // Reset to first page when the search changes.
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch]);
+
+  async function handleSyncRow(userId: number) {
+    setSyncing((s) => ({ ...s, [userId]: true }));
+    setRowError((e) => {
+      const next = { ...e };
+      delete next[userId];
+      return next;
+    });
+    const res = await syncCollateralUser(dpmUrl, userId);
+    if (res.success) {
+      await fetchUsers();
+    } else {
+      setRowError((e) => ({ ...e, [userId]: res.error }));
+    }
+    setSyncing((s) => {
+      const next = { ...s };
+      delete next[userId];
+      return next;
+    });
+  }
+
+  async function handleBackfill() {
+    setBackfilling(true);
+    setBackfillError(null);
+    setBackfillResult(null);
+    const res = await backfillCollateral(dpmUrl);
+    if (res.success) {
+      setBackfillResult(res.data);
+      await fetchUsers();
+    } else {
+      setBackfillError(res.error);
+    }
+    setBackfilling(false);
+  }
+
+  async function handleLookup() {
+    if (!lookupAddress) return;
+    setLookupLoading(true);
+    setLookupError(null);
+    setCollateralResult(null);
+    setCtfResult(null);
+
+    const collateralPromise = getCollateralBalance(dpmUrl, lookupAddress);
+    const ctfPromise = lookupTokenId
+      ? getConditionalTokenBalance(dpmUrl, lookupAddress, lookupTokenId)
+      : Promise.resolve(null);
+
+    const [collateralRes, ctfRes] = await Promise.all([collateralPromise, ctfPromise]);
+
+    let firstError: string | null = null;
+    if (collateralRes.success) {
+      setCollateralResult(collateralRes.data);
+    } else {
+      firstError = collateralRes.error;
+    }
+    if (ctfRes && "success" in ctfRes) {
+      if (ctfRes.success) {
+        setCtfResult(ctfRes.data);
+      } else if (!firstError) {
+        firstError = ctfRes.error;
+      }
+    }
+    if (firstError) setLookupError(firstError);
+    setLookupLoading(false);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return (
+    <div className="space-y-4">
+      {/* Users table */}
+      <Card
+        title={`User Balances${total ? ` (${total})` : ""}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchUsers}
+              disabled={loading}
+            >
+              {loading ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleBackfill}
+              disabled={backfilling}
+            >
+              {backfilling ? "Backfilling..." : "Backfill Missing"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-500">
+            Users with a proxy wallet and their cached on-chain USDC balance.
+            &quot;Refresh&quot; re-reads a single user from chain; &quot;Backfill Missing&quot;
+            pulls balances for every user that has no cached row yet.
+          </p>
+
+          <Input
+            placeholder="Search by address, proxy wallet, name, pseudonym or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 font-mono text-xs"
+          />
+
+          {error && <ErrorBox error={error} />}
+
+          {backfillError && <ErrorBox error={backfillError} />}
+          {backfillResult && (
+            <SuccessBox>
+              <p className="text-sm text-green-800 dark:text-green-200">
+                Backfill complete · total={backfillResult.total} missing=
+                {backfillResult.missing} succeeded={backfillResult.succeeded}{" "}
+                failed={backfillResult.failed}
+              </p>
+            </SuccessBox>
+          )}
+
+          {loading && users.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">Loading...</p>
+          ) : users.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">
+              No users found.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-zinc-500">ID</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Name</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Proxy Wallet</th>
+                    <th className="px-3 py-2 text-right font-medium text-zinc-500">
+                      USDC Balance
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium text-zinc-500">
+                      Allowance
+                    </th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Block</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Updated</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {users.map((u) => {
+                    const missing = u.balance === null;
+                    return (
+                      <tr
+                        key={u.id}
+                        className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                      >
+                        <td className="px-3 py-2 font-mono text-zinc-500">{u.id}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col">
+                            <span className="font-medium">
+                              {u.name || u.pseudonym || "—"}
+                            </span>
+                            {u.email && (
+                              <span className="text-zinc-400">{u.email}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLookupAddress(u.proxy_wallet);
+                              navigator.clipboard
+                                ?.writeText(u.proxy_wallet)
+                                .catch(() => {});
+                            }}
+                            className="font-mono text-zinc-700 hover:underline dark:text-zinc-300"
+                            title={u.proxy_wallet}
+                          >
+                            {shortAddr(u.proxy_wallet)}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {missing ? (
+                            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              no cache
+                            </Badge>
+                          ) : (
+                            formatUsdc(u.balance!.usdc_balance)
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-zinc-500">
+                          {missing ? "—" : formatUsdc(u.balance!.usdc_allowance)}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-zinc-500">
+                          {missing ? "—" : u.balance!.block_number}
+                        </td>
+                        <td className="px-3 py-2 text-zinc-500">
+                          {missing ? "—" : timeAgo(u.balance!.updated_at)}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex flex-col items-end gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!!syncing[u.id]}
+                              onClick={() => handleSyncRow(u.id)}
+                            >
+                              {syncing[u.id] ? "Syncing..." : "Refresh"}
+                            </Button>
+                            {rowError[u.id] && (
+                              <span className="max-w-[180px] truncate text-[10px] text-red-500">
+                                {rowError[u.id]}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-zinc-500">
+                Page {page + 1} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0 || loading}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages - 1 || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Ad-hoc lookup */}
+      <Card title="Lookup by Address">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Query on-chain balances directly for any address. USDC balance is
+            always fetched; provide a token ID to also fetch a conditional
+            token (ERC-1155) balance.
+          </p>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <Label className="text-xs font-medium">
+                Address <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="0x..."
+                value={lookupAddress}
+                onChange={(e) => setLookupAddress(e.target.value.trim())}
+                className="mt-1 h-8 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">
+                Conditional Token ID (optional)
+              </Label>
+              <Input
+                placeholder="Numeric token ID..."
+                value={lookupTokenId}
+                onChange={(e) => setLookupTokenId(e.target.value.trim())}
+                className="mt-1 h-8 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <Button
+            onClick={handleLookup}
+            disabled={!lookupAddress || lookupLoading}
+            className="w-full"
+          >
+            {lookupLoading ? "Fetching..." : "Fetch Balances"}
+          </Button>
+
+          {lookupError && <ErrorBox error={lookupError} />}
+
+          {collateralResult && (
+            <SuccessBox>
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-xs font-medium text-green-800 dark:text-green-200">
+                    USDC Balance
+                  </Label>
+                  <code className="mt-1 block rounded bg-white px-3 py-2 font-mono text-lg dark:bg-zinc-900">
+                    {collateralResult.balance_normalized}
+                  </code>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 text-xs">
+                  <div>
+                    <span className="text-green-700 dark:text-green-300">Raw: </span>
+                    <span className="font-mono text-green-800 dark:text-green-200">
+                      {collateralResult.balance_raw}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-green-700 dark:text-green-300">Decimals: </span>
+                    <span className="font-mono text-green-800 dark:text-green-200">
+                      {collateralResult.decimals}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </SuccessBox>
+          )}
+
+          {ctfResult && (
+            <SuccessBox>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-green-800 dark:text-green-200">
+                  Conditional Token Balance
+                </Label>
+                <code className="block rounded bg-white px-3 py-2 font-mono text-sm dark:bg-zinc-900">
+                  {ctfResult.balance}
+                </code>
+                <p className="font-mono text-[10px] text-green-700 dark:text-green-300">
+                  token_id: {ctfResult.token_id}
+                </p>
+              </div>
+            </SuccessBox>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Contracts Tab
 // ---------------------------------------------------------------------------
 
@@ -1996,6 +2461,7 @@ export default function AdminPage() {
     { key: "relayer-wallets", label: "Relayer Wallets" },
     { key: "smart-account", label: "Smart Account" },
     { key: "collateral", label: "Collateral Balance" },
+    { key: "balances", label: "Balances" },
     { key: "contracts", label: "Contracts" },
   ];
 
@@ -2062,6 +2528,7 @@ export default function AdminPage() {
           <div className={activeTab === "relayer-wallets" ? "" : "hidden"}><RelayerWalletsTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "smart-account" ? "" : "hidden"}><SmartAccountTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "collateral" ? "" : "hidden"}><CollateralBalanceTab dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "balances" ? "" : "hidden"}><BalancesTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "contracts" ? "" : "hidden"}><ContractsTab dpmUrl={dpmUrl} /></div>
         </div>
       </div>
