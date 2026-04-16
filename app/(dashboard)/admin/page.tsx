@@ -12,6 +12,9 @@ import {
   createMarket,
   umaPropose,
   umaResolve,
+  umaReset,
+  umaResolveManually,
+  umaDispute,
   listRelayerWallets,
   createRelayerWallet,
   getSmartAccount,
@@ -574,7 +577,24 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolveResult, setResolveResult] = useState<any | null>(null);
 
+  const [showDispute, setShowDispute] = useState(false);
+  const [disputerAddress, setDisputerAddress] = useState("");
+  const [disputeLoading, setDisputeLoading] = useState(false);
+  const [disputeError, setDisputeError] = useState<string | null>(null);
+  const [disputeResult, setDisputeResult] = useState<any | null>(null);
+
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<any | null>(null);
+
+  const [showManualResolve, setShowManualResolve] = useState(false);
+  const [manualResolvePayouts, setManualResolvePayouts] = useState("");
+  const [manualResolveLoading, setManualResolveLoading] = useState(false);
+  const [manualResolveError, setManualResolveError] = useState<string | null>(null);
+  const [manualResolveResult, setManualResolveResult] = useState<any | null>(null);
+
   const marketExternalId: string = m.id ?? m.ID ?? "";
+  const questionId: string = m.question_id ?? m.questionID ?? "";
   const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
 
   async function handlePropose() {
@@ -615,6 +635,67 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
       setResolveError(res.error);
     }
     setResolveLoading(false);
+  }
+
+  async function handleDispute() {
+    if (!questionId) {
+      setDisputeError("Market has no question_id — cannot dispute");
+      return;
+    }
+    setDisputeLoading(true);
+    setDisputeError(null);
+    setDisputeResult(null);
+
+    const res = await umaDispute(questionId, disputerAddress || undefined);
+    if (!res.success) {
+      setDisputeError(res.error);
+      setDisputeLoading(false);
+      return;
+    }
+
+    setDisputeResult(res);
+    setDisputeLoading(false);
+  }
+
+  async function handleReset() {
+    if (!marketExternalId) {
+      setResetError("Market has no external ID — cannot submit reset");
+      return;
+    }
+    setResetLoading(true);
+    setResetError(null);
+    setResetResult(null);
+
+    const res = await umaReset(dpmUrl, { market_id: marketExternalId });
+    if (res.success) {
+      setResetResult(res.data);
+    } else {
+      setResetError(res.error);
+    }
+    setResetLoading(false);
+  }
+
+  async function handleManualResolve() {
+    if (!marketExternalId) {
+      setManualResolveError("Market has no external ID — cannot submit manual resolve");
+      return;
+    }
+    const payouts = manualResolvePayouts.split(",").map((s) => s.trim()).filter(Boolean);
+    if (payouts.length === 0) {
+      setManualResolveError("Payouts are required (e.g. \"1,0\" for YES wins)");
+      return;
+    }
+    setManualResolveLoading(true);
+    setManualResolveError(null);
+    setManualResolveResult(null);
+
+    const res = await umaResolveManually(dpmUrl, { market_id: marketExternalId, payouts });
+    if (res.success) {
+      setManualResolveResult(res.data);
+    } else {
+      setManualResolveError(res.error);
+    }
+    setManualResolveLoading(false);
   }
 
   const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
@@ -707,13 +788,89 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
         >
           {resolveLoading ? "Resolving..." : "Resolve"}
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px] border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+          onClick={() => {
+            setShowDispute((s) => !s);
+            setDisputeError(null);
+            setDisputeResult(null);
+          }}
+          disabled={!questionId}
+        >
+          {showDispute ? "Cancel" : "Dispute"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950"
+          onClick={handleReset}
+          disabled={resetLoading}
+        >
+          {resetLoading ? "Resetting..." : "Reset"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px] border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950"
+          onClick={() => {
+            setShowManualResolve((s) => !s);
+            setManualResolveError(null);
+            setManualResolveResult(null);
+          }}
+        >
+          {showManualResolve ? "Cancel" : "Resolve Manually"}
+        </Button>
         {resolveError && <span className="text-[11px] text-red-600">{resolveError}</span>}
         {resolveResult && (
           <span className="text-[11px] text-green-600">
             Resolve submitted (workflow: {resolveResult.workflow_id})
           </span>
         )}
+        {resetError && <span className="text-[11px] text-red-600">{resetError}</span>}
+        {resetResult && (
+          <span className="text-[11px] text-green-600">
+            Reset submitted (workflow: {resetResult.workflow_id})
+          </span>
+        )}
       </div>
+
+      {showDispute && (
+        <div className="mt-3 space-y-3 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
+          <p className="text-[11px] font-medium text-red-700 dark:text-red-400">
+            Dispute price via UMA Optimistic Oracle
+          </p>
+          <div>
+            <Label className="text-[11px] font-medium">
+              Disputer Address <span className="text-zinc-400">(optional — defaults to oracle admin)</span>
+            </Label>
+            <Input
+              placeholder="0x... (leave blank to use oracle admin key)"
+              value={disputerAddress}
+              onChange={(e) => setDisputerAddress(e.target.value.trim())}
+              className="mt-1 h-7 font-mono text-[11px]"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-7 w-full text-[11px]"
+            onClick={handleDispute}
+            disabled={disputeLoading}
+          >
+            {disputeLoading ? "Disputing..." : "Submit Dispute"}
+          </Button>
+          {disputeError && <ErrorBox error={disputeError} />}
+          {disputeResult && (
+            <SuccessBox>
+              <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
+                Dispute TX: {disputeResult.txHash}
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      )}
 
       {showPropose && (
         <div className="mt-3 space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -761,6 +918,45 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             <SuccessBox>
               <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
                 Proposal submitted (workflow: {proposeResult.workflow_id})
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      )}
+
+      {showManualResolve && (
+        <div className="mt-3 space-y-3 rounded-md border border-purple-200 bg-purple-50 p-3 dark:border-purple-900 dark:bg-purple-950/30">
+          <p className="text-[11px] font-medium text-purple-700 dark:text-purple-400">
+            Manually resolve via UMA CTF Adapter (bypasses oracle liveness)
+          </p>
+          <p className="text-[10px] text-purple-600/70 dark:text-purple-400/70">
+            Only works on markets that have been <strong>flagged</strong> via the Optimistic Oracle&apos;s <code className="rounded bg-purple-100 px-1 dark:bg-purple-900/50">flag()</code> method, and only after the 1-hour safety period has elapsed since flagging.
+          </p>
+          <div>
+            <Label className="text-[11px] font-medium">
+              Payouts <span className="text-red-500">*</span>
+              <span className="ml-1 text-zinc-400">(comma-separated, e.g. &quot;1,0&quot; for YES wins)</span>
+            </Label>
+            <Input
+              placeholder="1,0"
+              value={manualResolvePayouts}
+              onChange={(e) => setManualResolvePayouts(e.target.value)}
+              className="mt-1 h-7 font-mono text-[11px]"
+            />
+          </div>
+          <Button
+            size="sm"
+            className="h-7 w-full bg-purple-600 text-[11px] text-white hover:bg-purple-700"
+            onClick={handleManualResolve}
+            disabled={manualResolveLoading || !manualResolvePayouts.trim()}
+          >
+            {manualResolveLoading ? "Submitting..." : "Submit Manual Resolve"}
+          </Button>
+          {manualResolveError && <ErrorBox error={manualResolveError} />}
+          {manualResolveResult && (
+            <SuccessBox>
+              <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
+                Manual resolve submitted (workflow: {manualResolveResult.workflow_id})
               </p>
             </SuccessBox>
           )}
