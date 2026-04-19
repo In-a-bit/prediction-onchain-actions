@@ -544,6 +544,71 @@ export async function syncCollateralUser(
   }
 }
 
+export async function getUserTokenBalances(
+  dpmUrl: string,
+  userId: number
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/users/${userId}/token-balances`, {
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to get token balances" };
+  }
+}
+
+export async function syncUserTokenBalance(
+  dpmUrl: string,
+  userId: number,
+  tokenId: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/users/${userId}/token-balance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token_id: tokenId }),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to sync token balance" };
+  }
+}
+
+export async function syncUserTokenBalancesFromOrders(
+  dpmUrl: string,
+  userId: number
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/users/${userId}/token-balances`, {
+      method: "POST",
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to sync token balances from orders" };
+  }
+}
+
 // --- Conditional tokens ---
 
 export async function getConditionalTokenBalance(

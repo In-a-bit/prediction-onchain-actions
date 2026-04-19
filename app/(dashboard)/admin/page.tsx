@@ -25,6 +25,9 @@ import {
   backfillCollateral,
   syncCollateralUser,
   getConditionalTokenBalance,
+  getUserTokenBalances,
+  syncUserTokenBalance,
+  syncUserTokenBalancesFromOrders,
 } from "@/lib/admin/actions";
 
 // ---------------------------------------------------------------------------
@@ -2039,6 +2042,22 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
   const [backfillResult, setBackfillResult] = useState<any | null>(null);
   const [backfillError, setBackfillError] = useState<string | null>(null);
 
+  // --- Token balance sync state ---
+  const [tokenSyncing, setTokenSyncing] = useState<Record<number, boolean>>({});
+  const [tokenSyncResult, setTokenSyncResult] = useState<Record<number, any>>({});
+
+  // --- Token balance lookup state (DB + on-chain comparison) ---
+  const [tbUserId, setTbUserId] = useState("");
+  const [tbTokenId, setTbTokenId] = useState("");
+  const [tbLoading, setTbLoading] = useState(false);
+  const [tbError, setTbError] = useState<string | null>(null);
+  const [tbDbBalances, setTbDbBalances] = useState<any[] | null>(null);
+  const [tbDbAddress, setTbDbAddress] = useState<string | null>(null);
+  const [tbOnchain, setTbOnchain] = useState<any | null>(null);
+  const [tbOnchainLoading, setTbOnchainLoading] = useState(false);
+  const [tbSyncing, setTbSyncing] = useState(false);
+  const [tbSyncResult, setTbSyncResult] = useState<any | null>(null);
+
   // --- Ad-hoc lookup state ---
   const [lookupAddress, setLookupAddress] = useState("");
   const [lookupTokenId, setLookupTokenId] = useState("");
@@ -2108,6 +2127,78 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
       setBackfillError(res.error);
     }
     setBackfilling(false);
+  }
+
+  async function handleSyncOrderTokens(userId: number) {
+    setTokenSyncing((s) => ({ ...s, [userId]: true }));
+    setRowError((e) => {
+      const next = { ...e };
+      delete next[userId];
+      return next;
+    });
+    setTokenSyncResult((r) => {
+      const next = { ...r };
+      delete next[userId];
+      return next;
+    });
+    const res = await syncUserTokenBalancesFromOrders(dpmUrl, userId);
+    if (res.success) {
+      setTokenSyncResult((r) => ({ ...r, [userId]: res.data }));
+    } else {
+      setRowError((e) => ({ ...e, [userId]: res.error }));
+    }
+    setTokenSyncing((s) => {
+      const next = { ...s };
+      delete next[userId];
+      return next;
+    });
+  }
+
+  async function handleFetchDbTokenBalances() {
+    const uid = parseInt(tbUserId, 10);
+    if (!uid || uid <= 0) return;
+    setTbLoading(true);
+    setTbError(null);
+    setTbDbBalances(null);
+    setTbDbAddress(null);
+    setTbOnchain(null);
+    setTbSyncResult(null);
+    const res = await getUserTokenBalances(dpmUrl, uid);
+    if (res.success) {
+      setTbDbBalances(res.data.balances || []);
+      setTbDbAddress(res.data.address || null);
+    } else {
+      setTbError(res.error);
+    }
+    setTbLoading(false);
+  }
+
+  async function handleFetchOnchainForToken() {
+    if (!tbDbAddress || !tbTokenId) return;
+    setTbOnchainLoading(true);
+    setTbOnchain(null);
+    const res = await getConditionalTokenBalance(dpmUrl, tbDbAddress, tbTokenId);
+    if (res.success) {
+      setTbOnchain(res.data);
+    } else {
+      setTbError(res.error);
+    }
+    setTbOnchainLoading(false);
+  }
+
+  async function handleSyncSpecificToken() {
+    const uid = parseInt(tbUserId, 10);
+    if (!uid || uid <= 0 || !tbTokenId) return;
+    setTbSyncing(true);
+    setTbSyncResult(null);
+    const res = await syncUserTokenBalance(dpmUrl, uid, tbTokenId);
+    if (res.success) {
+      setTbSyncResult(res.data);
+      await handleFetchDbTokenBalances();
+    } else {
+      setTbError(res.error);
+    }
+    setTbSyncing(false);
   }
 
   async function handleLookup() {
@@ -2274,14 +2365,32 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex flex-col items-end gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!!syncing[u.id]}
-                              onClick={() => handleSyncRow(u.id)}
-                            >
-                              {syncing[u.id] ? "Syncing..." : "Refresh"}
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!!syncing[u.id] || !!tokenSyncing[u.id]}
+                                onClick={() => handleSyncRow(u.id)}
+                              >
+                                {syncing[u.id] ? "Syncing..." : "Refresh"}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!!syncing[u.id] || !!tokenSyncing[u.id]}
+                                onClick={() => handleSyncOrderTokens(u.id)}
+                              >
+                                {tokenSyncing[u.id] ? "Syncing..." : "Sync Tokens"}
+                              </Button>
+                            </div>
+                            {tokenSyncResult[u.id] && (
+                              <span className="text-[10px] text-green-600">
+                                {tokenSyncResult[u.id].synced?.length || 0} token(s) synced
+                                {tokenSyncResult[u.id].errors?.length
+                                  ? `, ${tokenSyncResult[u.id].errors.length} error(s)`
+                                  : ""}
+                              </span>
+                            )}
                             {rowError[u.id] && (
                               <span className="max-w-[180px] truncate text-[10px] text-red-500">
                                 {rowError[u.id]}
@@ -2325,13 +2434,203 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
         </div>
       </Card>
 
-      {/* Ad-hoc lookup */}
-      <Card title="Lookup by Address">
+      {/* Token balances — DB view + on-chain comparison + sync */}
+      <Card title="Token Balances">
         <div className="space-y-4">
           <p className="text-xs text-zinc-500">
-            Query on-chain balances directly for any address. USDC balance is
-            always fetched; provide a token ID to also fetch a conditional
-            token (ERC-1155) balance.
+            View cached token balances from the database, compare with on-chain
+            values, and sync specific tokens. Enter a user ID to load their DB
+            balances, then optionally enter a token ID to compare with on-chain.
+          </p>
+
+          {/* Step 1: Load DB balances for a user */}
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Label className="text-xs font-medium">
+                User ID <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                placeholder="e.g. 42"
+                value={tbUserId}
+                onChange={(e) => setTbUserId(e.target.value.trim())}
+                onKeyDown={(e) => e.key === "Enter" && handleFetchDbTokenBalances()}
+                className="mt-1 h-8 text-xs"
+              />
+            </div>
+            <Button
+              onClick={handleFetchDbTokenBalances}
+              disabled={!tbUserId || tbLoading}
+              size="sm"
+            >
+              {tbLoading ? "Loading..." : "Load DB Balances"}
+            </Button>
+          </div>
+
+          {tbError && <ErrorBox error={tbError} />}
+
+          {/* DB balances table */}
+          {tbDbBalances !== null && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                  DB
+                </Badge>
+                <span className="text-xs text-zinc-500">
+                  {tbDbBalances.length} cached token balance(s)
+                  {tbDbAddress && (
+                    <span className="ml-1 font-mono">
+                      for {shortAddr(tbDbAddress)}
+                    </span>
+                  )}
+                </span>
+              </div>
+              {tbDbBalances.length === 0 ? (
+                <p className="py-4 text-center text-xs text-zinc-400">
+                  No cached token balances. Use &quot;Sync Tokens&quot; on the user row
+                  above, or sync a specific token below.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                      <tr>
+                        <th className="px-3 py-2 font-medium text-zinc-500">Token ID</th>
+                        <th className="px-3 py-2 text-right font-medium text-zinc-500">
+                          DB Balance
+                        </th>
+                        <th className="px-3 py-2 font-medium text-zinc-500">Block</th>
+                        <th className="px-3 py-2 font-medium text-zinc-500">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {tbDbBalances.map((b: any) => (
+                        <tr
+                          key={b.token_id}
+                          className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                          onClick={() => setTbTokenId(b.token_id)}
+                        >
+                          <td className="px-3 py-2 font-mono">
+                            {b.token_id.length > 20
+                              ? `${b.token_id.slice(0, 10)}...${b.token_id.slice(-8)}`
+                              : b.token_id}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {b.balance}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-zinc-500">
+                            {b.block_number}
+                          </td>
+                          <td className="px-3 py-2 text-zinc-500">
+                            {timeAgo(b.updated_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Compare specific token — on-chain vs DB */}
+          {tbDbBalances !== null && (
+            <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Compare &amp; Sync Specific Token
+              </p>
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Label className="text-xs font-medium">Token ID</Label>
+                  <Input
+                    placeholder="Click a row above or enter token ID..."
+                    value={tbTokenId}
+                    onChange={(e) => setTbTokenId(e.target.value.trim())}
+                    className="mt-1 h-8 font-mono text-xs"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleFetchOnchainForToken}
+                  disabled={!tbTokenId || !tbDbAddress || tbOnchainLoading}
+                >
+                  {tbOnchainLoading ? "Fetching..." : "Check On-chain"}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSyncSpecificToken}
+                  disabled={!tbTokenId || !tbUserId || tbSyncing}
+                >
+                  {tbSyncing ? "Syncing..." : "Sync to DB"}
+                </Button>
+              </div>
+
+              {/* Show comparison */}
+              {tbTokenId && (tbOnchain || tbDbBalances) && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-2 dark:border-blue-800 dark:bg-blue-950">
+                    <div className="flex items-center gap-1">
+                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                        DB
+                      </Badge>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400">
+                        Cached Balance
+                      </span>
+                    </div>
+                    <code className="mt-1 block font-mono text-sm">
+                      {tbDbBalances.find(
+                        (b: any) => b.token_id === tbTokenId
+                      )?.balance ?? "—"}
+                    </code>
+                    <p className="mt-1 text-[10px] text-blue-500">
+                      block:{" "}
+                      {tbDbBalances.find(
+                        (b: any) => b.token_id === tbTokenId
+                      )?.block_number ?? "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-950">
+                    <div className="flex items-center gap-1">
+                      <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                        On-chain
+                      </Badge>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                        Live Balance
+                      </span>
+                    </div>
+                    <code className="mt-1 block font-mono text-sm">
+                      {tbOnchain ? tbOnchain.balance : "—"}
+                    </code>
+                    <p className="mt-1 text-[10px] text-emerald-500">
+                      {tbOnchain
+                        ? "fetched just now"
+                        : "click \"Check On-chain\" to fetch"}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {tbSyncResult && (
+                <SuccessBox>
+                  <p className="text-xs text-green-800 dark:text-green-200">
+                    Synced token {tbSyncResult.synced?.[0]?.token_id} — DB
+                    balance updated to {tbSyncResult.synced?.[0]?.balance}
+                  </p>
+                </SuccessBox>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Ad-hoc on-chain lookup */}
+      <Card title="On-chain Lookup by Address">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Query <strong>on-chain</strong> balances directly for any address
+            (reads from the blockchain, not the database). USDC balance is always
+            fetched; provide a token ID to also fetch a conditional token
+            (ERC-1155) balance.
           </p>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -2374,7 +2673,7 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
               <div className="space-y-2">
                 <div>
                   <Label className="text-xs font-medium text-green-800 dark:text-green-200">
-                    USDC Balance
+                    USDC Balance (on-chain)
                   </Label>
                   <code className="mt-1 block rounded bg-white px-3 py-2 font-mono text-lg dark:bg-zinc-900">
                     {collateralResult.balance_normalized}
@@ -2402,7 +2701,7 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
             <SuccessBox>
               <div className="space-y-1">
                 <Label className="text-xs font-medium text-green-800 dark:text-green-200">
-                  Conditional Token Balance
+                  Conditional Token Balance (on-chain)
                 </Label>
                 <code className="block rounded bg-white px-3 py-2 font-mono text-sm dark:bg-zinc-900">
                   {ctfResult.balance}
