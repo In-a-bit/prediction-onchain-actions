@@ -324,6 +324,107 @@ export async function umaResolveManually(
   }
 }
 
+export async function umaPushPrice(
+  questionId: string,
+  price: string,
+): Promise<
+  | { success: true; txHash: string }
+  | { success: false; error: string }
+> {
+  try {
+    const { contracts } = await import("@/lib/contracts/registry");
+    const { Contract, JsonRpcProvider, Wallet, zeroPadValue } = await import("ethers");
+
+    let formattedQuestionId: string;
+    try {
+      const stripped = questionId.startsWith("0x") ? questionId : `0x${questionId}`;
+      formattedQuestionId = zeroPadValue(stripped, 32);
+    } catch {
+      return { success: false, error: `Invalid question ID format: "${questionId}". Expected a hex bytes32 value.` };
+    }
+
+    if (!price || !/^-?\d+$/.test(price.trim())) {
+      return { success: false, error: `Invalid price: "${price}". Expected an integer (wei).` };
+    }
+    const priceInt = BigInt(price.trim());
+
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) return { success: false, error: "RPC_URL not configured" };
+    const provider = new JsonRpcProvider(rpcUrl);
+
+    const adapterAddr = process.env.UMA_CTF_ADAPTER_ADDRESS;
+    if (!adapterAddr) return { success: false, error: "UMA_CTF_ADAPTER_ADDRESS not configured" };
+    const adapterConfig = contracts["uma-ctf-adapter"];
+    if (!adapterConfig) return { success: false, error: "UMA CTF Adapter not in registry" };
+    const adapter = adapterConfig.factory.connect(adapterAddr, provider);
+
+    const questionData = await (adapter as any).questions(formattedQuestionId);
+    const requestTimestamp: bigint = questionData.requestTimestamp;
+    const ancillaryData: string = questionData.ancillaryData;
+    if (!ancillaryData || ancillaryData === "0x") {
+      return { success: false, error: "Question not initialized on adapter (empty ancillary data)" };
+    }
+
+    const ooAddr = process.env.MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS;
+    if (!ooAddr) return { success: false, error: "MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS not configured" };
+    const ooConfig = contracts["oracle"];
+    if (!ooConfig) return { success: false, error: "Oracle not in registry" };
+    const oo = ooConfig.factory.connect(ooAddr, provider);
+
+    const YES_OR_NO_IDENTIFIER = "0x5945535f4f525f4e4f5f51554552590000000000000000000000000000000000";
+
+    const ooRequest = await (oo as any).getRequest(
+      adapterAddr,
+      YES_OR_NO_IDENTIFIER,
+      requestTimestamp,
+      ancillaryData,
+    );
+    const expirationTime: bigint = ooRequest.expirationTime;
+    if (expirationTime === BigInt(0)) {
+      return {
+        success: false,
+        error: "No price has been proposed yet for this question — nothing to dispute or push.",
+      };
+    }
+    const isEventBased: boolean = ooRequest.requestSettings.eventBased;
+    const customLiveness: bigint = ooRequest.requestSettings.customLiveness;
+    const defaultLiveness: bigint = await (oo as any).defaultLiveness();
+    const effectiveLiveness = customLiveness !== BigInt(0) ? customLiveness : defaultLiveness;
+    const dvmTime = isEventBased ? expirationTime - effectiveLiveness : requestTimestamp;
+
+    const stampedAncillary: string = await (oo as any).stampAncillaryData(ancillaryData, adapterAddr);
+
+    const DEFAULT_MOCK_ORACLE_ADDRESS = "0x2271a5E74eA8A29764ab10523575b41AA52455f0";
+    const mockOracleAddr = process.env.MOCK_ORACLE_ADDRESS || DEFAULT_MOCK_ORACLE_ADDRESS;
+
+    const privateKey = process.env.MANAGED_OPTIMISTIC_ORACLE_PROXY_OWNER_PRIVATE_KEY;
+    if (!privateKey) return { success: false, error: "Signer key not configured" };
+    const signer = new Wallet(privateKey, provider);
+
+    const mockOracleAbi = [
+      "function pushPrice(bytes32 identifier, uint256 time, bytes ancillaryData, int256 price)",
+    ];
+    const mockOracle = new Contract(mockOracleAddr, mockOracleAbi, signer);
+
+    const tx = await mockOracle.pushPrice(
+      YES_OR_NO_IDENTIFIER,
+      dvmTime,
+      stampedAncillary,
+      priceInt,
+    );
+    const receipt = await tx.wait();
+
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? (error.reason && error.reason !== "require(false)"
+          ? `${error.shortMessage} (${error.reason})`
+          : error.shortMessage)
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
 export async function umaDispute(
   questionId: string,
   disputerAddress?: string,

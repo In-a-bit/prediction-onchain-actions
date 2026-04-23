@@ -15,6 +15,7 @@ import {
   umaReset,
   umaResolveManually,
   umaDispute,
+  umaPushPrice,
   listRelayerWallets,
   createRelayerWallet,
   getSmartAccount,
@@ -596,6 +597,12 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const [manualResolveError, setManualResolveError] = useState<string | null>(null);
   const [manualResolveResult, setManualResolveResult] = useState<any | null>(null);
 
+  const [showPushPrice, setShowPushPrice] = useState(false);
+  const [pushPricePrice, setPushPricePrice] = useState("");
+  const [pushPriceLoading, setPushPriceLoading] = useState(false);
+  const [pushPriceError, setPushPriceError] = useState<string | null>(null);
+  const [pushPriceResult, setPushPriceResult] = useState<any | null>(null);
+
   const marketExternalId: string = m.id ?? m.ID ?? "";
   const questionId: string = m.question_id ?? m.questionID ?? "";
   const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
@@ -699,6 +706,28 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
       setManualResolveError(res.error);
     }
     setManualResolveLoading(false);
+  }
+
+  async function handlePushPrice() {
+    if (!questionId) {
+      setPushPriceError("Market has no question_id — cannot push price");
+      return;
+    }
+    if (!pushPricePrice) {
+      setPushPriceError("Select a price to push");
+      return;
+    }
+    setPushPriceLoading(true);
+    setPushPriceError(null);
+    setPushPriceResult(null);
+
+    const res = await umaPushPrice(questionId, pushPricePrice);
+    if (res.success) {
+      setPushPriceResult(res);
+    } else {
+      setPushPriceError(res.error);
+    }
+    setPushPriceLoading(false);
   }
 
   const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
@@ -824,6 +853,20 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
           }}
         >
           {showManualResolve ? "Cancel" : "Resolve Manually"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-3 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
+          onClick={() => {
+            setShowPushPrice((s) => !s);
+            setPushPriceError(null);
+            setPushPriceResult(null);
+          }}
+          disabled={!questionId}
+          title="Simulate UMA DVM vote outcome on the mock oracle (dev-only)"
+        >
+          {showPushPrice ? "Cancel" : "Push Price (Mock DVM)"}
         </Button>
         {resolveError && <span className="text-[11px] text-red-600">{resolveError}</span>}
         {resolveResult && (
@@ -960,6 +1003,48 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             <SuccessBox>
               <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
                 Manual resolve submitted (workflow: {manualResolveResult.workflow_id})
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      )}
+
+      {showPushPrice && (
+        <div className="mt-3 space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+            Push price to mock DVM oracle (dev-only)
+          </p>
+          <p className="text-[10px] text-amber-600/70 dark:text-amber-400/70">
+            Simulates the UMA DVM voters finalizing a disputed price. Only works after a dispute has escalated the request to the mock oracle. Calls <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">MockOracleAncillary.pushPrice(...)</code> directly on-chain.
+          </p>
+          <div>
+            <Label className="text-[11px] font-medium">
+              Price <span className="text-red-500">*</span>
+            </Label>
+            <select
+              value={pushPricePrice}
+              onChange={(e) => setPushPricePrice(e.target.value)}
+              className="mt-1 h-7 w-full rounded-md border border-zinc-200 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="">Select...</option>
+              <option value="1000000000000000000">YES (1e18)</option>
+              <option value="0">NO (0)</option>
+              <option value="500000000000000000">UNKNOWN / 50-50 (0.5e18)</option>
+            </select>
+          </div>
+          <Button
+            size="sm"
+            className="h-7 w-full bg-amber-600 text-[11px] text-white hover:bg-amber-700"
+            onClick={handlePushPrice}
+            disabled={pushPriceLoading || !pushPricePrice}
+          >
+            {pushPriceLoading ? "Pushing..." : "Push Price"}
+          </Button>
+          {pushPriceError && <ErrorBox error={pushPriceError} />}
+          {pushPriceResult && (
+            <SuccessBox>
+              <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
+                Push TX: {pushPriceResult.txHash}
               </p>
             </SuccessBox>
           )}
