@@ -46,6 +46,22 @@ type Tab =
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
 const DEFAULT_DPM_URL = "http://localhost:8086";
 
+// UMA OptimisticOracle price values for binary YES_OR_NO_QUERY resolutions.
+//   - YES / NO / UNKNOWN are the three valid settlement prices accepted by
+//     UmaCtfAdapter._constructPayouts (0, 0.5e18, 1e18).
+//   - IGNORE is type(int256).min — NOT a resolution value. When the adapter
+//     sees this on settle it calls _reset() and re-requests the question.
+//     Useful for testing the reset/re-request path end-to-end.
+const INT256_MIN =
+  "-57896044618658097711785492504343953926634992332820282019728792003956564819968";
+
+const UMA_PRICE_OPTIONS: { value: string; label: string }[] = [
+  { value: "1000000000000000000", label: "YES (1e18)" },
+  { value: "0", label: "NO (0)" },
+  { value: "500000000000000000", label: "UNKNOWN / 50-50 (0.5e18)" },
+  { value: INT256_MIN, label: "IGNORE / reset (int256.min)" },
+];
+
 const GAMMA_PRESETS = [
   { label: "Local (localhost:8084)", value: DEFAULT_GAMMA_URL },
   ...(process.env.NEXT_PUBLIC_GAMMA_API_URL
@@ -945,9 +961,11 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
                 className="mt-1 h-7 w-full rounded-md border border-zinc-200 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
               >
                 <option value="">Select...</option>
-                <option value="1000000000000000000">YES (1e18)</option>
-                <option value="0">NO (0)</option>
-                <option value="500000000000000000">UNKNOWN / 50-50 (0.5e18)</option>
+                {UMA_PRICE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1027,9 +1045,11 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
               className="mt-1 h-7 w-full rounded-md border border-zinc-200 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
             >
               <option value="">Select...</option>
-              <option value="1000000000000000000">YES (1e18)</option>
-              <option value="0">NO (0)</option>
-              <option value="500000000000000000">UNKNOWN / 50-50 (0.5e18)</option>
+              {UMA_PRICE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
           <Button
