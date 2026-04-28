@@ -1612,6 +1612,8 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
     UMA_ADMIN: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
     RELAYER_ADMIN: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     CTF_ADMIN: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+    FEE_ADMIN: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
+    TREASURY_ADMIN: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
   return (
@@ -1651,6 +1653,8 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
               <option value="RELAYER_ADMIN">RELAYER_ADMIN</option>
               <option value="UMA_ADMIN">UMA_ADMIN</option>
               <option value="CTF_ADMIN">CTF_ADMIN</option>
+              <option value="FEE_ADMIN">FEE_ADMIN</option>
+              <option value="TREASURY_ADMIN">TREASURY_ADMIN</option>
             </select>
             <Input
               placeholder="Search by label..."
@@ -1803,6 +1807,8 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                   <option value="RELAYER_ADMIN">RELAYER_ADMIN</option>
                   <option value="UMA_ADMIN">UMA_ADMIN</option>
                   <option value="CTF_ADMIN">CTF_ADMIN</option>
+                  <option value="FEE_ADMIN">FEE_ADMIN</option>
+                  <option value="TREASURY_ADMIN">TREASURY_ADMIN</option>
                 </select>
               </div>
               <div>
@@ -2834,6 +2840,7 @@ const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[
   { address: "0x8074BdCac5219C1b1c10AEa2947A8A77eB3A2bc6", name: "Fee Module", contract_type: "fee_module" },
   { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
   { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
+  { address: "0x5D525Ab2C7F2eEEB345972405005949F69de08bA", name: "Treasury", contract_type: "treasury" },
 ];
 
 function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
@@ -2912,6 +2919,7 @@ function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
     fee_module: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
     uma_ctf_adapter: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
     managed_oracle: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+    treasury: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
   return (
