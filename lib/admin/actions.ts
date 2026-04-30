@@ -65,6 +65,10 @@ export async function getMarketBySlug(
 
 // --- DPM API (write operations) ---
 
+function dpmPostHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { "X-API-Key": process.env.DPM_API_KEY ?? "", ...extra };
+}
+
 export async function createEvent(
   dpmUrl: string,
   payload: Record<string, any>
@@ -75,7 +79,7 @@ export async function createEvent(
   try {
     const res = await fetch(`${dpmUrl}/events`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -101,7 +105,7 @@ export async function createMarket(
   try {
     const res = await fetch(`${dpmUrl}/markets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -151,7 +155,7 @@ export async function createRelayerWallet(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -202,7 +206,7 @@ export async function signalBalanceAdded(
   try {
     const res = await fetch(`${dpmUrl}/markets/signal-balance`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ workflow_id: workflowId }),
       cache: "no-store",
     });
@@ -230,7 +234,7 @@ export async function umaPropose(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/propose`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -256,7 +260,7 @@ export async function umaResolve(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/resolve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -282,7 +286,7 @@ export async function umaReset(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/reset`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -308,7 +312,7 @@ export async function umaResolveManually(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/resolve-manually`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -530,7 +534,7 @@ export async function createContract(
   try {
     const res = await fetch(`${dpmUrl}/contracts`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -610,6 +614,7 @@ export async function backfillCollateral(
   try {
     const res = await fetch(`${dpmUrl}/collateral/backfill`, {
       method: "POST",
+      headers: dpmPostHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -631,6 +636,7 @@ export async function syncCollateralUser(
   try {
     const res = await fetch(`${dpmUrl}/collateral/sync/${userId}`, {
       method: "POST",
+      headers: dpmPostHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -673,7 +679,7 @@ export async function syncUserTokenBalance(
   try {
     const res = await fetch(`${dpmUrl}/users/${userId}/token-balance`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ token_id: tokenId }),
       cache: "no-store",
     });
@@ -696,6 +702,7 @@ export async function syncUserTokenBalancesFromOrders(
   try {
     const res = await fetch(`${dpmUrl}/users/${userId}/token-balances`, {
       method: "POST",
+      headers: dpmPostHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -707,6 +714,235 @@ export async function syncUserTokenBalancesFromOrders(
     return { success: true, data };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to sync token balances from orders" };
+  }
+}
+
+// --- Treasury ---
+
+export async function treasuryGetBalances(
+  addresses: string[],
+  tokenAddress: string,
+): Promise<{ success: true; data: { address: string; token: string; balance: string; balanceFormatted: string }[] } | { success: false; error: string }> {
+  try {
+    const { contracts } = await import("@/lib/contracts/registry");
+    const { JsonRpcProvider, isAddress } = await import("ethers");
+
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) return { success: false, error: "RPC_URL not configured" };
+
+    const treasuryAddr = process.env.TREASURY_ADDRESS;
+    if (!treasuryAddr) return { success: false, error: "TREASURY_ADDRESS not configured" };
+
+    const cfg = contracts["treasury"];
+    if (!cfg) return { success: false, error: "Treasury not in registry" };
+
+    const provider = new JsonRpcProvider(rpcUrl);
+    const treasury = cfg.factory.connect(treasuryAddr, provider);
+
+    const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+    const isNative = tokenAddress === ZERO_ADDR || tokenAddress === "";
+
+    const invalid = addresses.filter((a) => !isAddress(a));
+    if (invalid.length > 0) {
+      return { success: false, error: `Invalid address(es): ${invalid.join(", ")}` };
+    }
+
+    const queries = addresses.map((addr) => ({
+      targetAddress: addr,
+      tokenAddress: isNative ? ZERO_ADDR : tokenAddress,
+      spenderAddress: ZERO_ADDR,
+    }));
+
+    const results: any[] = await (treasury as any).getBalancesAndAllowances(queries);
+
+    const decimals = isNative ? 18 : 6;
+    const base = BigInt(10) ** BigInt(decimals);
+
+    const data = results.map((r: any) => {
+      const bal = BigInt(r.balance.toString());
+      const whole = bal / base;
+      const frac = (bal % base).toString().padStart(decimals, "0").slice(0, 4);
+      return {
+        address: r.balanceQuery.targetAddress,
+        token: isNative ? "native (POL)" : tokenAddress,
+        balance: r.balance.toString(),
+        balanceFormatted: `${whole.toLocaleString()}.${frac}`,
+      };
+    });
+
+    return { success: true, data };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryHasRole(
+  role: "admin" | "operator",
+  address: string,
+): Promise<{ success: true; data: { hasRole: boolean; role: string; address: string } } | { success: false; error: string }> {
+  try {
+    const { contracts } = await import("@/lib/contracts/registry");
+    const { JsonRpcProvider, keccak256, toUtf8Bytes } = await import("ethers");
+
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) return { success: false, error: "RPC_URL not configured" };
+
+    const treasuryAddr = process.env.TREASURY_ADDRESS;
+    if (!treasuryAddr) return { success: false, error: "TREASURY_ADDRESS not configured" };
+
+    const cfg = contracts["treasury"];
+    if (!cfg) return { success: false, error: "Treasury not in registry" };
+
+    const provider = new JsonRpcProvider(rpcUrl);
+    const treasury = cfg.factory.connect(treasuryAddr, provider);
+
+    const roleBytes =
+      role === "admin"
+        ? "0x0000000000000000000000000000000000000000000000000000000000000000"
+        : keccak256(toUtf8Bytes("OPERATOR_ROLE"));
+
+    const result: boolean = await (treasury as any).hasRole(roleBytes, address);
+    return { success: true, data: { hasRole: result, role, address } };
+  } catch (error: any) {
+    const msg = error.shortMessage ?? error.message ?? "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+async function buildTreasurySigner() {
+  const { contracts } = await import("@/lib/contracts/registry");
+  const { JsonRpcProvider, Wallet } = await import("ethers");
+
+  const rpcUrl = process.env.RPC_URL;
+  if (!rpcUrl) throw new Error("RPC_URL not configured");
+
+  const treasuryAddr = process.env.TREASURY_ADDRESS;
+  if (!treasuryAddr) throw new Error("TREASURY_ADDRESS not configured");
+
+  const privateKey = process.env.TREASURY_ADMIN_PRIVATE_KEY;
+  if (!privateKey) throw new Error("TREASURY_ADMIN_PRIVATE_KEY not configured");
+
+  const cfg = contracts["treasury"];
+  if (!cfg) throw new Error("Treasury not in registry");
+
+  const provider = new JsonRpcProvider(rpcUrl);
+  const signer = new Wallet(privateKey, provider);
+  const treasury = cfg.factory.connect(treasuryAddr, signer);
+
+  return { treasury, treasuryAddr };
+}
+
+export async function treasuryGrantOperatorRole(
+  addresses: string[],
+): Promise<{ success: true; txHash: string } | { success: false; error: string }> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).grantOperatorRole(addresses);
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryRevokeOperatorRole(
+  addresses: string[],
+): Promise<{ success: true; txHash: string } | { success: false; error: string }> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).revokeOperatorRole(addresses);
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryGrantAdminRole(
+  addresses: string[],
+): Promise<{ success: true; txHash: string } | { success: false; error: string }> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).grantAdminRole(addresses);
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryRevokeAdminRole(
+  addresses: string[],
+): Promise<{ success: true; txHash: string } | { success: false; error: string }> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).revokeAdminRole(addresses);
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryWithdrawETH(): Promise<
+  { success: true; txHash: string } | { success: false; error: string }
+> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).withdrawETH();
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
+  }
+}
+
+export async function treasuryWithdrawToken(
+  tokenAddress: string,
+  amount: string,
+): Promise<{ success: true; txHash: string } | { success: false; error: string }> {
+  try {
+    const { treasury } = await buildTreasurySigner();
+    const tx = await (treasury as any).withdrawToken(tokenAddress, BigInt(amount));
+    const receipt = await tx.wait();
+    return { success: true, txHash: receipt.hash };
+  } catch (error: any) {
+    const msg = error.shortMessage
+      ? error.reason && error.reason !== "require(false)"
+        ? `${error.shortMessage} (${error.reason})`
+        : error.shortMessage
+      : error.message || "Unknown error";
+    return { success: false, error: msg };
   }
 }
 

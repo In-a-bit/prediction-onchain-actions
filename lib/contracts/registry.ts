@@ -7,6 +7,7 @@ import { OracleWhitelistAbi__factory } from "@/types/contracts/factories/OracleW
 import { ProxyWalletFactoryAbi__factory } from "@/types/contracts/factories/ProxyWalletFactoryAbi__factory";
 import { RelayHubAbi__factory } from "@/types/contracts/factories/RelayHubAbi__factory";
 import { UmaCtfAdaperAbi__factory } from "@/types/contracts/factories/UmaCtfAdaperAbi__factory";
+import { Treasury__factory } from "@/types/contracts/factories/Treasury__factory";
 import type { ContractConfig } from "./types";
 
 export const contracts: Record<string, ContractConfig> = {
@@ -90,6 +91,15 @@ export const contracts: Record<string, ContractConfig> = {
     adminKeyEnv: "UMA_CTF_ADAPTER_ADMIN_PRIVATE_KEY",
     adminAddressEnv: "UMA_CTF_ADAPTER_ADMIN_ADDRESS",
     description: "UMA CTF adapter for resolving conditions via UMA oracle",
+  },
+  treasury: {
+    name: "Treasury",
+    slug: "treasury",
+    factory: Treasury__factory,
+    addressEnv: "TREASURY_ADDRESS",
+    adminKeyEnv: "TREASURY_ADMIN_PRIVATE_KEY",
+    adminAddressEnv: "TREASURY_ADMIN_ADDRESS",
+    description: "Custodies native (POL) and USDC.e, fans them out to system wallets via batchTransfer",
   },
 };
 

@@ -29,6 +29,14 @@ import {
   getUserTokenBalances,
   syncUserTokenBalance,
   syncUserTokenBalancesFromOrders,
+  treasuryGetBalances,
+  treasuryHasRole,
+  treasuryGrantOperatorRole,
+  treasuryRevokeOperatorRole,
+  treasuryGrantAdminRole,
+  treasuryRevokeAdminRole,
+  treasuryWithdrawETH,
+  treasuryWithdrawToken,
 } from "@/lib/admin/actions";
 
 // ---------------------------------------------------------------------------
@@ -41,7 +49,8 @@ type Tab =
   | "smart-account"
   | "collateral"
   | "balances"
-  | "contracts";
+  | "contracts"
+  | "treasury";
 
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
 const DEFAULT_DPM_URL = "http://localhost:8086";
@@ -2830,6 +2839,434 @@ function BalancesTab({ dpmUrl }: { dpmUrl: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Treasury Tab
+// ---------------------------------------------------------------------------
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
+function parseAddresses(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((a) => a.trim())
+    .filter(Boolean);
+}
+
+function TxHashLine({ hash }: { hash: string }) {
+  return (
+    <p className="break-all font-mono text-xs text-green-800 dark:text-green-200">
+      tx: {hash}
+    </p>
+  );
+}
+
+function TreasuryTab() {
+  const collateralAddress = process.env.NEXT_PUBLIC_COLLATERAL_ADDRESS ?? "";
+
+  // --- Balances ---
+  const [balAddresses, setBalAddresses] = useState("");
+  const [balToken, setBalToken] = useState<"native" | "collateral" | "custom">("native");
+  const [balCustomToken, setBalCustomToken] = useState("");
+  const [balLoading, setBalLoading] = useState(false);
+  const [balError, setBalError] = useState<string | null>(null);
+  const [balResults, setBalResults] = useState<any[] | null>(null);
+
+  // --- Role check ---
+  const [roleCheckAddr, setRoleCheckAddr] = useState("");
+  const [roleCheckRole, setRoleCheckRole] = useState<"admin" | "operator">("operator");
+  const [roleCheckLoading, setRoleCheckLoading] = useState(false);
+  const [roleCheckError, setRoleCheckError] = useState<string | null>(null);
+  const [roleCheckResult, setRoleCheckResult] = useState<any | null>(null);
+
+  // --- Role management ---
+  const [roleAddresses, setRoleAddresses] = useState("");
+  const [roleAction, setRoleAction] = useState<"grantOperator" | "revokeOperator" | "grantAdmin" | "revokeAdmin">("grantOperator");
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleResult, setRoleResult] = useState<string | null>(null);
+
+  // --- Withdraw ---
+  const [wdEthLoading, setWdEthLoading] = useState(false);
+  const [wdEthError, setWdEthError] = useState<string | null>(null);
+  const [wdEthResult, setWdEthResult] = useState<string | null>(null);
+
+  const [wdTokenAddr, setWdTokenAddr] = useState("");
+  const [wdTokenAmount, setWdTokenAmount] = useState("");
+  const [wdTokenLoading, setWdTokenLoading] = useState(false);
+  const [wdTokenError, setWdTokenError] = useState<string | null>(null);
+  const [wdTokenResult, setWdTokenResult] = useState<string | null>(null);
+
+  function resolvedTokenAddress(): string {
+    if (balToken === "native") return ZERO_ADDR;
+    if (balToken === "collateral") return collateralAddress || ZERO_ADDR;
+    return balCustomToken.trim();
+  }
+
+  async function handleGetBalances() {
+    setBalLoading(true);
+    setBalError(null);
+    setBalResults(null);
+    const addresses = parseAddresses(balAddresses);
+    if (addresses.length === 0) {
+      setBalError("Enter at least one address");
+      setBalLoading(false);
+      return;
+    }
+    const res = await treasuryGetBalances(addresses, resolvedTokenAddress());
+    if (res.success) {
+      setBalResults(res.data);
+    } else {
+      setBalError(res.error);
+    }
+    setBalLoading(false);
+  }
+
+  async function handleRoleCheck() {
+    setRoleCheckLoading(true);
+    setRoleCheckError(null);
+    setRoleCheckResult(null);
+    const res = await treasuryHasRole(roleCheckRole, roleCheckAddr.trim());
+    if (res.success) {
+      setRoleCheckResult(res.data);
+    } else {
+      setRoleCheckError(res.error);
+    }
+    setRoleCheckLoading(false);
+  }
+
+  async function handleRoleAction() {
+    setRoleLoading(true);
+    setRoleError(null);
+    setRoleResult(null);
+    const addresses = parseAddresses(roleAddresses);
+    if (addresses.length === 0) {
+      setRoleError("Enter at least one address");
+      setRoleLoading(false);
+      return;
+    }
+    const fn =
+      roleAction === "grantOperator" ? treasuryGrantOperatorRole
+      : roleAction === "revokeOperator" ? treasuryRevokeOperatorRole
+      : roleAction === "grantAdmin" ? treasuryGrantAdminRole
+      : treasuryRevokeAdminRole;
+    const res = await fn(addresses);
+    if (res.success) {
+      setRoleResult(res.txHash);
+    } else {
+      setRoleError(res.error);
+    }
+    setRoleLoading(false);
+  }
+
+  async function handleWithdrawETH() {
+    setWdEthLoading(true);
+    setWdEthError(null);
+    setWdEthResult(null);
+    const res = await treasuryWithdrawETH();
+    if (res.success) {
+      setWdEthResult(res.txHash);
+    } else {
+      setWdEthError(res.error);
+    }
+    setWdEthLoading(false);
+  }
+
+  async function handleWithdrawToken() {
+    setWdTokenLoading(true);
+    setWdTokenError(null);
+    setWdTokenResult(null);
+    if (!wdTokenAddr.trim()) {
+      setWdTokenError("Token address required");
+      setWdTokenLoading(false);
+      return;
+    }
+    if (!wdTokenAmount.trim() || !/^\d+$/.test(wdTokenAmount.trim())) {
+      setWdTokenError("Amount must be a positive integer (raw wei / base units)");
+      setWdTokenLoading(false);
+      return;
+    }
+    const res = await treasuryWithdrawToken(wdTokenAddr.trim(), wdTokenAmount.trim());
+    if (res.success) {
+      setWdTokenResult(res.txHash);
+    } else {
+      setWdTokenError(res.error);
+    }
+    setWdTokenLoading(false);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Balances */}
+      <Card title="Get Balances">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Calls <code>Treasury.getBalancesAndAllowances</code> — single eth_call for any set
+            of addresses. Reads native (POL) or ERC-20 balance per address.
+          </p>
+
+          <div>
+            <Label className="text-xs font-medium">
+              Addresses <span className="text-red-500">*</span>
+            </Label>
+            <p className="text-xs text-zinc-400">One per line, or comma-separated</p>
+            <textarea
+              value={balAddresses}
+              onChange={(e) => setBalAddresses(e.target.value)}
+              placeholder={"0x...\n0x..."}
+              rows={4}
+              className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs font-medium">Token</Label>
+            <div className="mt-1 flex gap-2">
+              <select
+                value={balToken}
+                onChange={(e) => setBalToken(e.target.value as any)}
+                className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="native">Native (POL)</option>
+                <option value="collateral">USDC.e (collateral)</option>
+                <option value="custom">Custom address…</option>
+              </select>
+              {balToken === "custom" && (
+                <Input
+                  placeholder="0x token address"
+                  value={balCustomToken}
+                  onChange={(e) => setBalCustomToken(e.target.value.trim())}
+                  className="h-8 flex-1 font-mono text-xs"
+                />
+              )}
+            </div>
+          </div>
+
+          <Button
+            onClick={handleGetBalances}
+            disabled={!balAddresses.trim() || balLoading}
+            className="w-full"
+          >
+            {balLoading ? "Fetching…" : "Get Balances"}
+          </Button>
+
+          {balError && <ErrorBox error={balError} />}
+
+          {balResults && balResults.length > 0 && (
+            <SuccessBox>
+              <div className="overflow-x-auto rounded-md border border-green-200 dark:border-green-800">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+                    <tr>
+                      <th className="px-3 py-2 font-medium text-green-700 dark:text-green-300">Address</th>
+                      <th className="px-3 py-2 font-medium text-green-700 dark:text-green-300">Balance (formatted)</th>
+                      <th className="px-3 py-2 font-medium text-green-700 dark:text-green-300">Balance (raw)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-green-100 dark:divide-green-900">
+                    {balResults.map((r) => (
+                      <tr key={r.address}>
+                        <td className="px-3 py-2 font-mono text-green-800 dark:text-green-200">{r.address}</td>
+                        <td className="px-3 py-2 font-mono font-semibold text-green-800 dark:text-green-200">{r.balanceFormatted}</td>
+                        <td className="px-3 py-2 font-mono text-green-700 dark:text-green-300">{r.balance}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SuccessBox>
+          )}
+        </div>
+      </Card>
+
+      {/* Role check */}
+      <Card title="Check Role">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Check whether an address holds the Admin or Operator role on the Treasury contract.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-medium">Address <span className="text-red-500">*</span></Label>
+              <Input
+                placeholder="0x..."
+                value={roleCheckAddr}
+                onChange={(e) => setRoleCheckAddr(e.target.value.trim())}
+                className="mt-1 h-8 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Role</Label>
+              <select
+                value={roleCheckRole}
+                onChange={(e) => setRoleCheckRole(e.target.value as any)}
+                className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="operator">OPERATOR_ROLE</option>
+                <option value="admin">ADMIN_ROLE</option>
+              </select>
+            </div>
+          </div>
+          <Button
+            onClick={handleRoleCheck}
+            disabled={!roleCheckAddr.trim() || roleCheckLoading}
+            className="w-full"
+          >
+            {roleCheckLoading ? "Checking…" : "Check Role"}
+          </Button>
+          {roleCheckError && <ErrorBox error={roleCheckError} />}
+          {roleCheckResult && (
+            <SuccessBox>
+              <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                {roleCheckResult.address}
+              </p>
+              <p className="mt-1 text-xs text-green-700 dark:text-green-300">
+                {roleCheckResult.role.toUpperCase()}_ROLE:{" "}
+                <span className={`font-semibold ${roleCheckResult.hasRole ? "text-green-600" : "text-red-500"}`}>
+                  {roleCheckResult.hasRole ? "✓ granted" : "✗ not granted"}
+                </span>
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      </Card>
+
+      {/* Role management */}
+      <Card title="Role Management">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Grant or revoke operator / admin roles. Signed by{" "}
+            <code className="text-xs">TREASURY_ADMIN_PRIVATE_KEY</code>. Admin key required.
+          </p>
+
+          <div>
+            <Label className="text-xs font-medium">Action</Label>
+            <select
+              value={roleAction}
+              onChange={(e) => {
+                setRoleAction(e.target.value as any);
+                setRoleError(null);
+                setRoleResult(null);
+              }}
+              className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="grantOperator">Grant OPERATOR_ROLE</option>
+              <option value="revokeOperator">Revoke OPERATOR_ROLE</option>
+              <option value="grantAdmin">Grant ADMIN_ROLE</option>
+              <option value="revokeAdmin">Revoke ADMIN_ROLE</option>
+            </select>
+          </div>
+
+          <div>
+            <Label className="text-xs font-medium">
+              Addresses <span className="text-red-500">*</span>
+            </Label>
+            <p className="text-xs text-zinc-400">One per line, or comma-separated</p>
+            <textarea
+              value={roleAddresses}
+              onChange={(e) => setRoleAddresses(e.target.value)}
+              placeholder="0x..."
+              rows={3}
+              className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </div>
+
+          <Button
+            onClick={handleRoleAction}
+            disabled={!roleAddresses.trim() || roleLoading}
+            className="w-full"
+            variant={roleAction.startsWith("revoke") ? "destructive" : "default"}
+          >
+            {roleLoading ? "Submitting…" : roleAction === "grantOperator" ? "Grant Operator Role"
+              : roleAction === "revokeOperator" ? "Revoke Operator Role"
+              : roleAction === "grantAdmin" ? "Grant Admin Role"
+              : "Revoke Admin Role"}
+          </Button>
+
+          {roleError && <ErrorBox error={roleError} />}
+          {roleResult && (
+            <SuccessBox>
+              <p className="text-xs font-medium text-green-800 dark:text-green-200">Role updated</p>
+              <TxHashLine hash={roleResult} />
+            </SuccessBox>
+          )}
+        </div>
+      </Card>
+
+      {/* Emergency Withdraw */}
+      <Card title="Emergency Withdraw">
+        <div className="space-y-6">
+          <p className="text-xs text-zinc-500">
+            Drain contract funds to the caller (signed by{" "}
+            <code className="text-xs">TREASURY_ADMIN_PRIVATE_KEY</code>). Admin role required.
+          </p>
+
+          {/* Withdraw ETH */}
+          <div className="space-y-3">
+            <p className="text-xs font-medium">Withdraw all native POL</p>
+            <Button
+              onClick={handleWithdrawETH}
+              disabled={wdEthLoading}
+              variant="destructive"
+              className="w-full"
+            >
+              {wdEthLoading ? "Withdrawing…" : "Withdraw ETH (all)"}
+            </Button>
+            {wdEthError && <ErrorBox error={wdEthError} />}
+            {wdEthResult && (
+              <SuccessBox>
+                <p className="text-xs font-medium text-green-800 dark:text-green-200">ETH withdrawn</p>
+                <TxHashLine hash={wdEthResult} />
+              </SuccessBox>
+            )}
+          </div>
+
+          <hr className="border-zinc-200 dark:border-zinc-800" />
+
+          {/* Withdraw token */}
+          <div className="space-y-3">
+            <p className="text-xs font-medium">Withdraw ERC-20 token</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Token address <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="0x..."
+                  value={wdTokenAddr}
+                  onChange={(e) => setWdTokenAddr(e.target.value.trim())}
+                  className="mt-1 h-8 font-mono text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Amount (raw base units) <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="e.g. 50000000 for 50 USDC.e"
+                  value={wdTokenAmount}
+                  onChange={(e) => setWdTokenAmount(e.target.value.trim())}
+                  className="mt-1 h-8 font-mono text-xs"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={handleWithdrawToken}
+              disabled={!wdTokenAddr.trim() || !wdTokenAmount.trim() || wdTokenLoading}
+              variant="destructive"
+              className="w-full"
+            >
+              {wdTokenLoading ? "Withdrawing…" : "Withdraw Token"}
+            </Button>
+            {wdTokenError && <ErrorBox error={wdTokenError} />}
+            {wdTokenResult && (
+              <SuccessBox>
+                <p className="text-xs font-medium text-green-800 dark:text-green-200">Token withdrawn</p>
+                <TxHashLine hash={wdTokenResult} />
+              </SuccessBox>
+            )}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Contracts Tab
 // ---------------------------------------------------------------------------
 
@@ -3071,6 +3508,7 @@ export default function AdminPage() {
     { key: "collateral", label: "Collateral Balance" },
     { key: "balances", label: "Balances" },
     { key: "contracts", label: "Contracts" },
+    { key: "treasury", label: "Treasury" },
   ];
 
   return (
@@ -3138,6 +3576,7 @@ export default function AdminPage() {
           <div className={activeTab === "collateral" ? "" : "hidden"}><CollateralBalanceTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "balances" ? "" : "hidden"}><BalancesTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "contracts" ? "" : "hidden"}><ContractsTab dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "treasury" ? "" : "hidden"}><TreasuryTab /></div>
         </div>
       </div>
     </div>
