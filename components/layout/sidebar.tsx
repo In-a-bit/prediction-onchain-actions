@@ -56,6 +56,8 @@ export function Sidebar() {
           { href: "/create-market", label: "Create Market" },
           { href: "/send", label: "Send POL" },
           { href: "/register-relay", label: "Register Relay" },
+          { href: "/setup-ctf-admin", label: "Setup CTF Admin" },
+          { href: "/setup-uma-admin", label: "Setup UMA Admin" },
           { href: "/admin", label: "Admin CRM" },
         ].map(({ href, label }) => (
           <Link
