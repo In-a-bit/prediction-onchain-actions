@@ -39,6 +39,10 @@ import {
   treasuryRevokeAdminRole,
   treasuryWithdrawETH,
   treasuryWithdrawToken,
+  listTags,
+  createTag,
+  listSeries,
+  createSeries,
 } from "@/lib/admin/actions";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +57,8 @@ type Tab =
   | "collateral"
   | "balances"
   | "contracts"
+  | "tags"
+  | "series"
   | "treasury";
 
 const DEFAULT_GAMMA_URL = "http://localhost:8084";
@@ -133,6 +139,40 @@ function Card({
       <div className="p-6">{children}</div>
     </div>
   );
+}
+
+function isMetadataValid(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function MetadataHint({ value }: { value: string }) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return (
+      <p className="mt-1 text-[10px] text-zinc-400">Leave empty to skip.</p>
+    );
+  }
+  try {
+    JSON.parse(trimmed);
+    return (
+      <p className="mt-1 text-[10px] text-green-600 dark:text-green-400">
+        Valid JSON
+      </p>
+    );
+  } catch (e: any) {
+    return (
+      <p className="mt-1 text-[10px] text-red-600 dark:text-red-400">
+        Invalid JSON: {e.message}
+      </p>
+    );
+  }
 }
 
 function ErrorBox({ error }: { error: string }) {
@@ -527,7 +567,7 @@ function EventsTab({
 
       {/* Create Event (collapsible) */}
       {showCreateEvent && (
-        <CreateEventForm dpmUrl={dpmUrl} onCreated={() => fetchEvents(page)} />
+        <CreateEventForm gammaUrl={gammaUrl} dpmUrl={dpmUrl} onCreated={() => fetchEvents(page)} />
       )}
 
       {/* Create Market Modal */}
@@ -592,6 +632,8 @@ function EventDetail({ event, dpmUrl }: { event: any; dpmUrl: string }) {
           ["Deployment Status", event.deployment_status ?? event.deploymentStatus ?? (event.ready ? "DEPLOYED" : "PENDING")],
           ["Comment Count", event.comment_count ?? event.commentCount],
           ["Parent Event ID", event.parent_event_id ?? event.parentEventId],
+          ["Metadata Type", event.metadata_type ?? event.metadataType],
+          ["Metadata", event.metadata != null ? JSON.stringify(event.metadata) : undefined],
           ["Volume", event.volume],
           ["Liquidity", event.liquidity],
         ]
@@ -830,6 +872,8 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
           ["Min Tick Size", m.order_price_min_tick_size ?? m.minimumTickSize],
           ["Min Order Size", m.order_min_size ?? m.minimumOrderSize],
           ["RFQ Enabled", String(m.rfq_enabled ?? m.rfqEnabled)],
+          ["Metadata Type", m.metadata_type ?? m.metadataType],
+          ["Metadata", m.metadata != null ? JSON.stringify(m.metadata) : undefined],
         ]
           .filter(([, v]) => v !== undefined && v !== null && v !== "")
           .map(([label, value]) => (
@@ -1125,9 +1169,8 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
 // Create Event Form (inline, collapsible)
 // ---------------------------------------------------------------------------
 
-function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () => void }) {
+function CreateEventForm({ gammaUrl, dpmUrl, onCreated }: { gammaUrl: string; dpmUrl: string; onCreated: () => void }) {
   const [form, setForm] = useState({
-    external_id: "",
     slug: "",
     title: "",
     ticker: "",
@@ -1143,8 +1186,14 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
     neg_risk: "false",
     neg_risk_market_id: "",
     deployment_status: "PENDING",
+    deploying_timestamp: "",
     parent_event_id: "",
+    comment_count: "",
+    metadata_type: "",
+    metadata: "",
   });
+  const [selectedTags, setSelectedTags] = useState<TagOption[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<SeriesOption | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any | null>(null);
@@ -1159,7 +1208,6 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
     setResult(null);
 
     const payload: Record<string, any> = {
-      external_id: form.external_id,
       slug: form.slug,
       title: form.title,
       active: form.active === "true",
@@ -1176,12 +1224,28 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
     if (form.end_date) payload.end_date = new Date(form.end_date).toISOString();
     if (form.icon) payload.icon = form.icon;
     if (form.neg_risk_market_id) payload.neg_risk_market_id = form.neg_risk_market_id;
+    if (form.deploying_timestamp) payload.deploying_timestamp = new Date(form.deploying_timestamp).toISOString();
     if (form.parent_event_id) payload.parent_event_id = parseInt(form.parent_event_id, 10);
+    if (selectedSeries) payload.series_external_id = selectedSeries.external_id;
+    if (form.comment_count) payload.comment_count = parseInt(form.comment_count, 10);
+    if (selectedTags.length > 0) payload.tag_ids = selectedTags.map((t) => t.id);
+    if (form.metadata_type) payload.metadata_type = form.metadata_type;
+    if (form.metadata.trim()) {
+      try {
+        payload.metadata = JSON.parse(form.metadata);
+      } catch (e: any) {
+        setError(`Invalid metadata JSON: ${e.message}`);
+        setLoading(false);
+        return;
+      }
+    }
 
     const res = await createEvent(dpmUrl, payload);
     if (res.success) {
       setResult(res.data);
-      setForm({ external_id: "", slug: "", title: "", ticker: "", description: "", resolution_source: "", start_date: "", end_date: "", icon: "", active: "true", closed: "false", archived: "false", restricted: "false", neg_risk: "false", neg_risk_market_id: "", deployment_status: "PENDING", parent_event_id: "" });
+      setForm({ slug: "", title: "", ticker: "", description: "", resolution_source: "", start_date: "", end_date: "", icon: "", active: "true", closed: "false", archived: "false", restricted: "false", neg_risk: "false", neg_risk_market_id: "", deployment_status: "PENDING", deploying_timestamp: "", parent_event_id: "", comment_count: "", metadata_type: "", metadata: "" });
+      setSelectedTags([]);
+      setSelectedSeries(null);
       onCreated();
     } else {
       setError(res.error);
@@ -1189,16 +1253,13 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
     setLoading(false);
   }
 
-  const canSubmit = form.external_id && form.slug && form.title && !loading;
+  const canSubmit = form.slug && form.title && !loading && isMetadataValid(form.metadata);
 
   return (
     <Card title="Create Event">
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <Label className="text-xs font-medium">External ID <span className="text-red-500">*</span></Label>
-            <Input placeholder="unique-external-id" value={form.external_id} onChange={(e) => setField("external_id", e.target.value.trim())} className="mt-1 h-8 text-xs" />
-          </div>
+        <p className="text-[10px] text-zinc-400">External ID is generated server-side as a UUID.</p>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="text-xs font-medium">Slug <span className="text-red-500">*</span></Label>
             <Input placeholder="event-url-slug" value={form.slug} onChange={(e) => setField("slug", e.target.value.trim())} className="mt-1 h-8 text-xs" />
@@ -1263,6 +1324,17 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
             </select>
           </div>
           <div>
+            <Label className="text-xs font-medium">Deploying Timestamp</Label>
+            <Input type="datetime-local" value={form.deploying_timestamp} onChange={(e) => setField("deploying_timestamp", e.target.value)} className="mt-1 h-8 text-xs" />
+          </div>
+          <div>
+            <Label className="text-xs font-medium">Comment Count</Label>
+            <Input placeholder="optional int" value={form.comment_count} onChange={(e) => setField("comment_count", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
             <Label className="text-xs font-medium">Neg Risk Market ID</Label>
             <Input placeholder="optional" value={form.neg_risk_market_id} onChange={(e) => setField("neg_risk_market_id", e.target.value.trim())} className="mt-1 h-8 text-xs" />
           </div>
@@ -1270,6 +1342,49 @@ function CreateEventForm({ dpmUrl, onCreated }: { dpmUrl: string; onCreated: () 
             <Label className="text-xs font-medium">Parent Event ID</Label>
             <Input placeholder="optional int" value={form.parent_event_id} onChange={(e) => setField("parent_event_id", e.target.value.trim())} className="mt-1 h-8 text-xs" />
           </div>
+        </div>
+
+        <div>
+          <Label className="text-xs font-medium">Series</Label>
+          <p className="mb-1 text-[10px] text-zinc-400">
+            Search existing series. Manage series in the Series tab.
+          </p>
+          <div className="mt-1">
+            <SeriesSearchSelect gammaUrl={gammaUrl} selected={selectedSeries} onChange={setSelectedSeries} />
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs font-medium">Tags</Label>
+          <p className="mb-1 text-[10px] text-zinc-400">
+            Search existing tags by label or slug. Manage tags in the Tags tab.
+          </p>
+          <div className="mt-1">
+            <TagSearchSelect gammaUrl={gammaUrl} selected={selectedTags} onChange={setSelectedTags} />
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-xs font-medium">Metadata Type</Label>
+          <p className="mb-1 text-[10px] text-zinc-400">
+            Free-form classifier paired with metadata.
+          </p>
+          <Input placeholder="e.g. sports, crypto, election" value={form.metadata_type} onChange={(e) => setField("metadata_type", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+        </div>
+
+        <div>
+          <Label className="text-xs font-medium">Metadata (JSON)</Label>
+          <p className="mb-1 text-[10px] text-zinc-400">
+            Optional opaque JSON payload. Validated client-side before submit.
+          </p>
+          <textarea
+            placeholder='{"key": "value"}'
+            value={form.metadata}
+            onChange={(e) => setField("metadata", e.target.value)}
+            rows={4}
+            className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+          />
+          <MetadataHint value={form.metadata} />
         </div>
 
         <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full">
@@ -1323,17 +1438,22 @@ function CreateMarketModal({
     archived: "false",
     restricted: "false",
     accepting_orders: "true",
+    accepting_orders_timestamp: "",
     funded: "false",
     approved: "false",
     activation: "AUTO",
+    automatically_active: "false",
     clear_book_on_start: "false",
     rfq_enabled: "false",
     order_price_min_tick_size: "",
     order_min_size: "",
     uma_bond: "",
     uma_reward: "",
+    uma_resolution_status: "",
     liveness: "",
     seconds_delay: "",
+    metadata_type: "",
+    metadata: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1361,6 +1481,7 @@ function CreateMarketModal({
       funded: form.funded === "true",
       approved: form.approved === "true",
       activation: form.activation,
+      automatically_active: form.automatically_active === "true",
       clear_book_on_start: form.clear_book_on_start === "true",
       rfq_enabled: form.rfq_enabled === "true",
     };
@@ -1370,14 +1491,26 @@ function CreateMarketModal({
     if (form.resolution_source) payload.resolution_source = form.resolution_source;
     if (form.start_date) payload.start_date = new Date(form.start_date).toISOString();
     if (form.end_date) payload.end_date = new Date(form.end_date).toISOString();
+    if (form.accepting_orders_timestamp) payload.accepting_orders_timestamp = new Date(form.accepting_orders_timestamp).toISOString();
     if (form.neg_risk_market_id) payload.neg_risk_market_id = form.neg_risk_market_id;
     if (form.neg_risk_request_id) payload.neg_risk_request_id = form.neg_risk_request_id;
     if (form.order_price_min_tick_size) payload.order_price_min_tick_size = parseFloat(form.order_price_min_tick_size);
     if (form.order_min_size) payload.order_min_size = parseInt(form.order_min_size, 10);
     if (form.uma_bond) payload.uma_bond = form.uma_bond;
     if (form.uma_reward) payload.uma_reward = form.uma_reward;
+    if (form.uma_resolution_status) payload.uma_resolution_status = form.uma_resolution_status;
     if (form.liveness) payload.liveness = form.liveness;
     if (form.seconds_delay) payload.seconds_delay = parseFloat(form.seconds_delay);
+    if (form.metadata_type) payload.metadata_type = form.metadata_type;
+    if (form.metadata.trim()) {
+      try {
+        payload.metadata = JSON.parse(form.metadata);
+      } catch (e: any) {
+        setError(`Invalid metadata JSON: ${e.message}`);
+        setLoading(false);
+        return;
+      }
+    }
 
     const res = await createMarket(dpmUrl, payload);
     if (res.success) {
@@ -1389,7 +1522,7 @@ function CreateMarketModal({
     setLoading(false);
   }
 
-  const canSubmit = form.question && !loading;
+  const canSubmit = form.question && !loading && isMetadataValid(form.metadata);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-20" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -1468,12 +1601,24 @@ function CreateMarketModal({
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-medium">Accepting Orders Timestamp</Label>
+              <Input type="datetime-local" value={form.accepting_orders_timestamp} onChange={(e) => setField("accepting_orders_timestamp", e.target.value)} className="mt-1 h-8 text-xs" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs font-medium">Activation</Label>
                 <select value={form.activation} onChange={(e) => setField("activation", e.target.value)} className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
                   <option value="AUTO">AUTO</option>
                   <option value="MANUAL">MANUAL</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Automatically Active</Label>
+                <select value={form.automatically_active} onChange={(e) => setField("automatically_active", e.target.value)} className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
                 </select>
               </div>
               <div>
@@ -1536,9 +1681,36 @@ function CreateMarketModal({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Seconds Delay</Label>
+                <Input placeholder="optional" value={form.seconds_delay} onChange={(e) => setField("seconds_delay", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">UMA Resolution Status</Label>
+                <Input placeholder="optional" value={form.uma_resolution_status} onChange={(e) => setField("uma_resolution_status", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
             <div>
-              <Label className="text-xs font-medium">Seconds Delay</Label>
-              <Input placeholder="optional" value={form.seconds_delay} onChange={(e) => setField("seconds_delay", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+              <Label className="text-xs font-medium">Metadata Type</Label>
+              <p className="mb-1 text-[10px] text-zinc-400">Free-form classifier paired with metadata.</p>
+              <Input placeholder="e.g. sports, crypto, election" value={form.metadata_type} onChange={(e) => setField("metadata_type", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+            </div>
+
+            <div>
+              <Label className="text-xs font-medium">Metadata (JSON)</Label>
+              <p className="mb-1 text-[10px] text-zinc-400">
+                Optional opaque JSON payload. Validated client-side before submit.
+              </p>
+              <textarea
+                placeholder='{"key": "value"}'
+                value={form.metadata}
+                onChange={(e) => setField("metadata", e.target.value)}
+                rows={4}
+                className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+              />
+              <MetadataHint value={form.metadata} />
             </div>
 
             <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full">
@@ -3813,6 +3985,818 @@ function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Tag Search Select — typeahead multi-select used by Create Event form
+// ---------------------------------------------------------------------------
+
+interface TagOption {
+  id: number;
+  label: string;
+  slug: string;
+}
+
+function TagSearchSelect({
+  gammaUrl,
+  selected,
+  onChange,
+}: {
+  gammaUrl: string;
+  selected: TagOption[];
+  onChange: (next: TagOption[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<TagOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      const res = await listTags(gammaUrl, { limit: "20", search });
+      if (cancelled) return;
+      if (res.success) {
+        const items: TagOption[] = (res.data?.data ?? []).map((t: any) => ({
+          id: t.id,
+          label: t.label,
+          slug: t.slug,
+        }));
+        setResults(items);
+      } else {
+        setError(res.error);
+      }
+      setLoading(false);
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search, gammaUrl]);
+
+  const selectedIds = new Set(selected.map((t) => t.id));
+  const filteredResults = results.filter((t) => !selectedIds.has(t.id));
+
+  function add(tag: TagOption) {
+    onChange([...selected, tag]);
+    setSearch("");
+  }
+
+  function remove(id: number) {
+    onChange(selected.filter((t) => t.id !== id));
+  }
+
+  return (
+    <div className="relative">
+      {selected.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {selected.map((t) => (
+            <Badge key={t.id} variant="secondary" className="gap-1 pr-1 text-xs">
+              {t.label}
+              <button
+                type="button"
+                onClick={() => remove(t.id)}
+                className="rounded-sm px-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+                aria-label={`Remove ${t.label}`}
+              >
+                ×
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+      <Input
+        placeholder="Search tags by label or slug..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="h-8 text-xs"
+      />
+      {open && (
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+          {loading && (
+            <p className="px-3 py-2 text-xs text-zinc-400">Searching...</p>
+          )}
+          {error && (
+            <p className="px-3 py-2 text-xs text-red-500">{error}</p>
+          )}
+          {!loading && !error && filteredResults.length === 0 && (
+            <p className="px-3 py-2 text-xs text-zinc-400">
+              {search ? "No matching tags" : "No tags yet"}
+            </p>
+          )}
+          {!loading &&
+            !error &&
+            filteredResults.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => add(t)}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                <span className="font-medium">{t.label}</span>
+                <span className="ml-2 truncate font-mono text-[10px] text-zinc-500">
+                  {t.slug}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tags Tab — view, search, create
+// ---------------------------------------------------------------------------
+
+function TagsTab({ gammaUrl, dpmUrl }: { gammaUrl: string; dpmUrl: string }) {
+  const [tags, setTags] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const limit = 50;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Create form state
+  const [showCreate, setShowCreate] = useState(false);
+  const [newSlug, setNewSlug] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newForceShow, setNewForceShow] = useState(false);
+  const [newForceHide, setNewForceHide] = useState(false);
+  const [newRequiresTranslation, setNewRequiresTranslation] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+
+  const fetchTags = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await listTags(gammaUrl, {
+      limit: String(limit),
+      offset: String(page * limit),
+      search,
+    });
+    if (res.success) {
+      setTags(res.data?.data ?? []);
+      setTotal(res.data?.total ?? 0);
+    } else {
+      setError(res.error);
+    }
+    setLoading(false);
+  }, [gammaUrl, page, search]);
+
+  useEffect(() => {
+    const t = setTimeout(() => fetchTags(), 200);
+    return () => clearTimeout(t);
+  }, [fetchTags]);
+
+  async function handleCreate() {
+    setCreating(true);
+    setCreateError(null);
+    setCreateSuccess(null);
+    const res = await createTag(dpmUrl, {
+      slug: newSlug,
+      label: newLabel,
+      force_show: newForceShow,
+      force_hide: newForceHide,
+      requires_translation: newRequiresTranslation,
+    });
+    if (res.success) {
+      setCreateSuccess(`Created tag "${res.data?.label}"`);
+      setNewSlug("");
+      setNewLabel("");
+      setNewForceShow(false);
+      setNewForceHide(false);
+      setNewRequiresTranslation(false);
+      await fetchTags();
+    } else {
+      setCreateError(res.error);
+    }
+    setCreating(false);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const canCreate = newSlug.trim() && newLabel.trim() && !creating;
+
+  return (
+    <div className="space-y-4">
+      <Card
+        title="Create Tag"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreate((v) => !v)}
+          >
+            {showCreate ? "Hide" : "Show"}
+          </Button>
+        }
+      >
+        {showCreate ? (
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-500">
+              Upserts by slug — sending an existing slug returns the existing tag unchanged.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Slug <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="tag-slug"
+                  value={newSlug}
+                  onChange={(e) => setNewSlug(e.target.value.trim())}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Label <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="Display label"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-4 pt-1">
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={newForceShow}
+                  onChange={(e) => setNewForceShow(e.target.checked)}
+                />
+                Force Show
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={newForceHide}
+                  onChange={(e) => setNewForceHide(e.target.checked)}
+                />
+                Force Hide
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={newRequiresTranslation}
+                  onChange={(e) => setNewRequiresTranslation(e.target.checked)}
+                />
+                Requires Translation
+              </label>
+            </div>
+            <Button onClick={handleCreate} disabled={!canCreate} className="w-full">
+              {creating ? "Creating..." : "Create Tag"}
+            </Button>
+            {createError && <ErrorBox error={createError} />}
+            {createSuccess && (
+              <SuccessBox>
+                <p className="text-sm text-green-800 dark:text-green-200">{createSuccess}</p>
+              </SuccessBox>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">Click &quot;Show&quot; to add a new tag.</p>
+        )}
+      </Card>
+
+      <Card
+        title={`Tags${total > 0 ? ` (${total})` : ""}`}
+        actions={
+          <Button variant="outline" size="sm" onClick={fetchTags} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            placeholder="Search by label or slug..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            className="h-8 text-xs"
+          />
+
+          {error && <ErrorBox error={error} />}
+
+          {loading && tags.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">Loading...</p>
+          ) : tags.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">
+              {search ? "No matching tags" : "No tags yet"}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-zinc-500">ID</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Label</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Slug</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Flags</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">External ID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {tags.map((t: any) => (
+                    <tr key={t.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+                      <td className="px-3 py-2 font-mono text-zinc-500">{t.id}</td>
+                      <td className="px-3 py-2 font-medium">{t.label}</td>
+                      <td className="px-3 py-2 font-mono">{t.slug}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          <BoolBadge value={t.force_show} label="show" />
+                          <BoolBadge value={t.force_hide} label="hide" />
+                          <BoolBadge value={t.requires_translation} label="i18n" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 truncate font-mono text-[10px] text-zinc-500">
+                        {t.external_id}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-zinc-500">
+                Page {page + 1} of {totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0 || loading}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page + 1 >= totalPages || loading}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Series Search Select — single-select dropdown used by Create Event form.
+// Stores the series external UUID, which dpm-api accepts as series_external_id.
+// ---------------------------------------------------------------------------
+
+interface SeriesOption {
+  external_id: string;
+  title: string;
+  slug: string;
+}
+
+function SeriesSearchSelect({
+  gammaUrl,
+  selected,
+  onChange,
+}: {
+  gammaUrl: string;
+  selected: SeriesOption | null;
+  onChange: (next: SeriesOption | null) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<SeriesOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      const res = await listSeries(gammaUrl, { limit: "20", search });
+      if (cancelled) return;
+      if (res.success) {
+        setResults(
+          (res.data?.data ?? []).map((s: any) => ({
+            external_id: s.external_id,
+            title: s.title,
+            slug: s.slug,
+          })),
+        );
+      } else {
+        setError(res.error);
+      }
+      setLoading(false);
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search, gammaUrl]);
+
+  if (selected) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium">{selected.title}</p>
+          <p className="truncate font-mono text-[10px] text-zinc-500">
+            {selected.slug}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="rounded-sm px-2 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+        >
+          Clear
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        placeholder="Search series by title or slug..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="h-8 text-xs"
+      />
+      {open && (
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+          {loading && (
+            <p className="px-3 py-2 text-xs text-zinc-400">Searching...</p>
+          )}
+          {error && <p className="px-3 py-2 text-xs text-red-500">{error}</p>}
+          {!loading && !error && results.length === 0 && (
+            <p className="px-3 py-2 text-xs text-zinc-400">
+              {search ? "No matching series" : "No series yet"}
+            </p>
+          )}
+          {!loading &&
+            !error &&
+            results.map((s) => (
+              <button
+                key={s.external_id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(s);
+                  setSearch("");
+                }}
+                className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                <span className="font-medium">{s.title}</span>
+                <span className="ml-2 truncate font-mono text-[10px] text-zinc-500">
+                  {s.slug}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Series Tab — view, search, create.
+// Reads from gamma; writes go through dpm-api (POST /series).
+// ---------------------------------------------------------------------------
+
+function SeriesTab({ gammaUrl, dpmUrl }: { gammaUrl: string; dpmUrl: string }) {
+  const [series, setSeries] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const limit = 20;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Create form
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({
+    slug: "",
+    title: "",
+    ticker: "",
+    description: "",
+    icon: "",
+    series_type: "",
+    recurrence: "",
+    active: "true",
+    closed: "false",
+    archived: "false",
+    restricted: "false",
+    featured: "false",
+    new: "false",
+    requires_translation: "false",
+    comment_count: "",
+    metadata_type: "",
+    metadata: "",
+  });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+
+  function setField(key: string, val: string) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  const fetchSeries = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await listSeries(gammaUrl, {
+      limit: String(limit),
+      offset: String(page * limit),
+      search,
+    });
+    if (res.success) {
+      setSeries(res.data?.data ?? []);
+      setTotal(res.data?.total ?? 0);
+    } else {
+      setError(res.error);
+    }
+    setLoading(false);
+  }, [gammaUrl, page, search]);
+
+  useEffect(() => {
+    const t = setTimeout(() => fetchSeries(), 200);
+    return () => clearTimeout(t);
+  }, [fetchSeries]);
+
+  async function handleCreate() {
+    setCreating(true);
+    setCreateError(null);
+    setCreateSuccess(null);
+
+    const payload: Parameters<typeof createSeries>[1] = {
+      slug: form.slug,
+      title: form.title,
+      active: form.active === "true",
+      closed: form.closed === "true",
+      archived: form.archived === "true",
+      restricted: form.restricted === "true",
+      featured: form.featured === "true",
+      new: form.new === "true",
+      requires_translation: form.requires_translation === "true",
+    };
+    if (form.ticker) payload.ticker = form.ticker;
+    if (form.description) payload.description = form.description;
+    if (form.icon) payload.icon = form.icon;
+    if (form.series_type) payload.series_type = form.series_type;
+    if (form.recurrence) payload.recurrence = form.recurrence;
+    if (form.comment_count) payload.comment_count = parseInt(form.comment_count, 10);
+    if (form.metadata_type) payload.metadata_type = form.metadata_type;
+    if (form.metadata.trim()) {
+      try {
+        payload.metadata = JSON.parse(form.metadata);
+      } catch (e: any) {
+        setCreateError(`Invalid metadata JSON: ${e.message}`);
+        setCreating(false);
+        return;
+      }
+    }
+
+    const res = await createSeries(dpmUrl, payload);
+    if (res.success) {
+      setCreateSuccess(`Created series "${res.data?.title || form.title}"`);
+      setForm({
+        slug: "", title: "", ticker: "", description: "", icon: "",
+        series_type: "", recurrence: "", active: "true", closed: "false",
+        archived: "false", restricted: "false", featured: "false", new: "false",
+        requires_translation: "false", comment_count: "", metadata_type: "", metadata: "",
+      });
+      await fetchSeries();
+    } else {
+      setCreateError(res.error);
+    }
+    setCreating(false);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const canCreate =
+    form.slug.trim() && form.title.trim() && !creating && isMetadataValid(form.metadata);
+
+  return (
+    <div className="space-y-4">
+      <Card
+        title="Create Series"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreate((v) => !v)}
+          >
+            {showCreate ? "Hide" : "Show"}
+          </Button>
+        }
+      >
+        {showCreate ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Slug <span className="text-red-500">*</span></Label>
+                <Input placeholder="series-slug" value={form.slug} onChange={(e) => setField("slug", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Title <span className="text-red-500">*</span></Label>
+                <Input placeholder="Series title" value={form.title} onChange={(e) => setField("title", e.target.value)} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Ticker</Label>
+                <Input placeholder="SERIES-TICKER" value={form.ticker} onChange={(e) => setField("ticker", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs font-medium">Description</Label>
+              <textarea placeholder="Series description" value={form.description} onChange={(e) => setField("description", e.target.value)} rows={2} className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Icon URL</Label>
+                <Input placeholder="https://..." value={form.icon} onChange={(e) => setField("icon", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Series Type</Label>
+                <Input placeholder="e.g. tournament" value={form.series_type} onChange={(e) => setField("series_type", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Recurrence</Label>
+                <Input placeholder="e.g. weekly" value={form.recurrence} onChange={(e) => setField("recurrence", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2">
+              {([
+                ["active", "Active"],
+                ["closed", "Closed"],
+                ["archived", "Archived"],
+                ["restricted", "Restricted"],
+                ["featured", "Featured"],
+                ["new", "New"],
+                ["requires_translation", "i18n"],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <Label className="text-xs font-medium">{label}</Label>
+                  <select value={form[key]} onChange={(e) => setField(key, e.target.value)} className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Comment Count</Label>
+                <Input placeholder="optional int" value={form.comment_count} onChange={(e) => setField("comment_count", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Metadata Type</Label>
+                <Input placeholder="free-form classifier" value={form.metadata_type} onChange={(e) => setField("metadata_type", e.target.value.trim())} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs font-medium">Metadata (JSON)</Label>
+              <textarea
+                placeholder='{"key": "value"}'
+                value={form.metadata}
+                onChange={(e) => setField("metadata", e.target.value)}
+                rows={4}
+                className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+              />
+              <MetadataHint value={form.metadata} />
+            </div>
+
+            <Button onClick={handleCreate} disabled={!canCreate} className="w-full">
+              {creating ? "Creating..." : "Create Series"}
+            </Button>
+
+            {createError && <ErrorBox error={createError} />}
+            {createSuccess && (
+              <SuccessBox>
+                <p className="text-sm text-green-800 dark:text-green-200">{createSuccess}</p>
+              </SuccessBox>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">Click &quot;Show&quot; to add a new series.</p>
+        )}
+      </Card>
+
+      <Card
+        title={`Series${total > 0 ? ` (${total})` : ""}`}
+        actions={
+          <Button variant="outline" size="sm" onClick={fetchSeries} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            placeholder="Search by title or slug..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            className="h-8 text-xs"
+          />
+
+          {error && <ErrorBox error={error} />}
+
+          {loading && series.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">Loading...</p>
+          ) : series.length === 0 ? (
+            <p className="py-8 text-center text-sm text-zinc-400">
+              {search ? "No matching series" : "No series yet"}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Title</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Slug</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Series Type</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Recurrence</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Metadata Type</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Flags</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">External ID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {series.map((s: any) => (
+                    <tr key={s.external_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+                      <td className="px-3 py-2 font-medium">{s.title}</td>
+                      <td className="px-3 py-2 font-mono">{s.slug}</td>
+                      <td className="px-3 py-2 text-zinc-500">{s.series_type || "-"}</td>
+                      <td className="px-3 py-2 text-zinc-500">{s.recurrence || "-"}</td>
+                      <td className="px-3 py-2 text-zinc-500">{s.metadata_type || "-"}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          <BoolBadge value={!!s.active} label="active" />
+                          <BoolBadge value={!!s.closed} label="closed" />
+                          <BoolBadge value={!!s.archived} label="archived" />
+                          <BoolBadge value={!!s.featured} label="featured" />
+                          <BoolBadge value={!!s.new} label="new" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 truncate font-mono text-[10px] text-zinc-500">
+                        {s.external_id}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-zinc-500">
+                Page {page + 1} of {totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0 || loading}>
+                  Previous
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page + 1 >= totalPages || loading}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -3841,6 +4825,8 @@ export default function AdminPage() {
     { key: "collateral", label: "Collateral Balance" },
     { key: "balances", label: "Balances" },
     { key: "contracts", label: "Contracts" },
+    { key: "tags", label: "Tags" },
+    { key: "series", label: "Series" },
     { key: "treasury", label: "Treasury" },
   ];
 
@@ -3910,6 +4896,8 @@ export default function AdminPage() {
           <div className={activeTab === "collateral" ? "" : "hidden"}><CollateralBalanceTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "balances" ? "" : "hidden"}><BalancesTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "contracts" ? "" : "hidden"}><ContractsTab dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "tags" ? "" : "hidden"}><TagsTab gammaUrl={gammaUrl} dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "series" ? "" : "hidden"}><SeriesTab gammaUrl={gammaUrl} dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "treasury" ? "" : "hidden"}><TreasuryTab /></div>
         </div>
       </div>

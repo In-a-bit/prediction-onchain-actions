@@ -603,6 +603,175 @@ export async function createContract(
   }
 }
 
+// --- Tags ---
+
+// Reads paginated tags from gamma-api. Returns a normalized envelope:
+//   { data: Array<{ id: number; label: string; slug: string; force_show?: boolean;
+//                    force_hide?: boolean; requires_translation?: boolean;
+//                    external_id?: string }>,
+//     total: number }
+export async function listTags(
+  gammaUrl: string,
+  params: { limit?: string; offset?: string; search?: string }
+): Promise<{ success: true; data: { data: any[]; total: number } } | { success: false; error: string }> {
+  try {
+    const url = new URL("/tags/pagination", gammaUrl);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") {
+        url.searchParams.set(key, value);
+      }
+    }
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) {
+      return { success: false, error: await readErrorMessage(res) };
+    }
+    const raw = await res.json().catch(() => null);
+    const items = Array.isArray(raw?.data) ? raw.data : [];
+    const total = raw?.pagination?.totalResults ?? items.length;
+    // Normalize gamma's camelCase fields to the snake_case shape the UI expects.
+    // gamma's `id` is the external UUID; the integer DB id (needed for tag_ids
+    // when creating an event via dpm-api) comes from the `intId` sidecar field.
+    const normalized = items.map((t: any) => ({
+      id: typeof t.intId === "number" ? t.intId : null,
+      label: t.label,
+      slug: t.slug,
+      force_show: t.forceShow ?? t.force_show,
+      force_hide: t.forceHide ?? t.force_hide,
+      requires_translation: t.requiresTranslation ?? t.requires_translation,
+      external_id: typeof t.id === "string" ? t.id : t.external_id,
+    }));
+    return { success: true, data: { data: normalized, total } };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to list tags" };
+  }
+}
+
+export async function createTag(
+  dpmUrl: string,
+  payload: {
+    slug: string;
+    label: string;
+    force_show?: boolean;
+    force_hide?: boolean;
+    requires_translation?: boolean;
+  }
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/tags`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return { success: false, error: await readErrorMessage(res) };
+    }
+    const data = await res.json().catch(() => null);
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to create tag" };
+  }
+}
+
+// --- Series ---
+
+// Reads paginated series from gamma-api. Returns a normalized envelope:
+//   { data: Array<{ id: string; title: string; slug: string; ... }>, total: number }
+// Note: `id` is the external UUID — pass it as `series_external_id` to dpm-api
+// when creating an event.
+export async function listSeries(
+  gammaUrl: string,
+  params: { limit?: string; offset?: string; search?: string }
+): Promise<
+  | { success: true; data: { data: any[]; total: number } }
+  | { success: false; error: string }
+> {
+  try {
+    const url = new URL("/series/pagination", gammaUrl);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") {
+        url.searchParams.set(key, value);
+      }
+    }
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) {
+      return { success: false, error: await readErrorMessage(res) };
+    }
+    const raw = await res.json().catch(() => null);
+    const items = Array.isArray(raw?.data) ? raw.data : [];
+    const total = raw?.pagination?.totalResults ?? items.length;
+    const normalized = items.map((s: any) => ({
+      external_id: s.id,
+      title: s.title,
+      slug: s.slug,
+      ticker: s.ticker,
+      series_type: s.seriesType ?? s.series_type,
+      recurrence: s.recurrence,
+      active: s.active,
+      closed: s.closed,
+      archived: s.archived,
+      restricted: s.restricted,
+      featured: s.featured,
+      new: s.new,
+      created_at: s.createdAt ?? s.created_at,
+      metadata_type: s.metadataType ?? s.metadata_type,
+    }));
+    return { success: true, data: { data: normalized, total } };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to list series" };
+  }
+}
+
+export async function createSeries(
+  dpmUrl: string,
+  payload: {
+    slug: string;
+    title: string;
+    ticker?: string;
+    description?: string;
+    icon?: string;
+    series_type?: string;
+    recurrence?: string;
+    active?: boolean;
+    closed?: boolean;
+    archived?: boolean;
+    restricted?: boolean;
+    featured?: boolean;
+    new?: boolean;
+    requires_translation?: boolean;
+    comment_count?: number;
+    metadata_type?: string;
+    metadata?: any;
+  }
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/series`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return { success: false, error: await readErrorMessage(res) };
+    }
+    const data = await res.json().catch(() => null);
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to create series" };
+  }
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (!text) return `HTTP ${res.status} ${res.statusText || ""}`.trim();
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.error || parsed?.message || text;
+  } catch {
+    return `HTTP ${res.status}: ${text}`;
+  }
+}
+
 export async function getCollateralBalance(
   dpmUrl: string,
   address: string
