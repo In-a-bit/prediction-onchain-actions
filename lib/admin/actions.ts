@@ -121,6 +121,32 @@ export async function createMarket(
   }
 }
 
+export async function createAdminOracleMarket(
+  dpmUrl: string,
+  payload: Record<string, any>
+): Promise<
+  | { success: true; data: any }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/markets/admin-oracle`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to create admin oracle market" };
+  }
+}
+
 export async function listRelayerWallets(
   dpmUrl: string,
   params: { limit?: string; offset?: string; address?: string; wallet_type?: string; label?: string }

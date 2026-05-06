@@ -10,6 +10,7 @@ import {
   getEventBySlug,
   createEvent,
   createMarket,
+  createAdminOracleMarket,
   umaPropose,
   umaResolve,
   umaReset,
@@ -252,8 +253,12 @@ function EventsTab({
   // Create event
   const [showCreateEvent, setShowCreateEvent] = useState(false);
 
-  // Create market modal
+  // Create market modals
   const [marketModalEvent, setMarketModalEvent] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [moMarketModalEvent, setMoMarketModalEvent] = useState<{
     id: string;
     title: string;
   } | null>(null);
@@ -466,7 +471,7 @@ function EventsTab({
                       <div className="col-span-1 text-zinc-500">
                         {event.markets?.length ?? "?"}
                       </div>
-                      <div className="col-span-1 flex justify-end">
+                      <div className="col-span-1 flex justify-end gap-1">
                         <Button
                           variant="outline"
                           size="sm"
@@ -480,6 +485,20 @@ function EventsTab({
                           }}
                         >
                           + Market
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMoMarketModalEvent({
+                              id: eventId,
+                              title: event.title || "Untitled",
+                            });
+                          }}
+                        >
+                          + AO Market
                         </Button>
                       </div>
                     </div>
@@ -521,6 +540,23 @@ function EventsTab({
           onCreated={() => {
             fetchEvents(page);
             // Re-expand the event to show the new market
+            if (expandedSlug) {
+              handleExpand(expandedSlug);
+              handleExpand(expandedSlug);
+            }
+          }}
+        />
+      )}
+
+      {/* Create Managed Oracle Market Modal */}
+      {moMarketModalEvent && (
+        <CreateAdminOracleMarketModal
+          dpmUrl={dpmUrl}
+          eventExternalId={moMarketModalEvent.id}
+          eventTitle={moMarketModalEvent.title}
+          onClose={() => setMoMarketModalEvent(null)}
+          onCreated={() => {
+            fetchEvents(page);
             if (expandedSlug) {
               handleExpand(expandedSlug);
               handleExpand(expandedSlug);
@@ -1527,6 +1563,189 @@ function CreateMarketModal({
 }
 
 // ---------------------------------------------------------------------------
+// Create Managed Oracle Market Modal
+// ---------------------------------------------------------------------------
+
+function CreateAdminOracleMarketModal({
+  dpmUrl,
+  eventExternalId,
+  eventTitle,
+  onClose,
+  onCreated,
+}: {
+  dpmUrl: string;
+  eventExternalId: string;
+  eventTitle: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState({
+    question: "",
+    outcome_0: "Up",
+    outcome_1: "Down",
+    slug: "",
+    description: "",
+    resolution_source: "",
+    start_date: "",
+    end_date: "",
+    active: "true",
+    closed: "false",
+    archived: "false",
+    restricted: "false",
+    accepting_orders: "true",
+    funded: "false",
+    approved: "false",
+    activation: "AUTO",
+    clear_book_on_start: "false",
+    rfq_enabled: "false",
+    order_price_min_tick_size: "",
+    order_min_size: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any | null>(null);
+
+  function setField(key: string, val: string) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  async function handleSubmit() {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    const payload: Record<string, any> = {
+      event_external_id: eventExternalId,
+      question: form.question,
+      outcome_0: form.outcome_0 || undefined,
+      outcome_1: form.outcome_1 || undefined,
+      active: form.active === "true",
+      closed: form.closed === "true",
+      archived: form.archived === "true",
+      restricted: form.restricted === "true",
+      accepting_orders: form.accepting_orders === "true",
+      funded: form.funded === "true",
+      approved: form.approved === "true",
+      activation: form.activation,
+      clear_book_on_start: form.clear_book_on_start === "true",
+      rfq_enabled: form.rfq_enabled === "true",
+    };
+
+    if (form.slug) payload.slug = form.slug;
+    if (form.description) payload.description = form.description;
+    if (form.resolution_source) payload.resolution_source = form.resolution_source;
+    if (form.start_date) payload.start_date = new Date(form.start_date).toISOString();
+    if (form.end_date) payload.end_date = new Date(form.end_date).toISOString();
+    if (form.order_price_min_tick_size) payload.order_price_min_tick_size = parseFloat(form.order_price_min_tick_size);
+    if (form.order_min_size) payload.order_min_size = parseInt(form.order_min_size, 10);
+
+    const res = await createAdminOracleMarket(dpmUrl, payload);
+    if (res.success) {
+      setResult(res.data);
+      onCreated();
+    } else {
+      setError(res.error);
+    }
+    setLoading(false);
+  }
+
+  const canSubmit = form.question && !loading;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-20" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="w-full max-w-2xl rounded-lg border border-orange-200 bg-white shadow-xl dark:border-orange-900 dark:bg-zinc-950">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-orange-200 px-6 py-4 dark:border-orange-900 bg-orange-50 dark:bg-orange-950/30 rounded-t-lg">
+          <div>
+            <h3 className="text-lg font-semibold">Create Managed Oracle Market</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              For event: <span className="font-medium">{eventTitle}</span>
+              <span className="ml-2 font-mono text-zinc-400">{eventExternalId.slice(0, 12)}...</span>
+            </p>
+            <p className="mt-0.5 text-[10px] text-orange-600 dark:text-orange-400">
+              Admin-settled via AdminOracle · No UMA required
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="max-h-[70vh] overflow-y-auto p-6">
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs font-medium">Question <span className="text-red-500">*</span></Label>
+              <Input placeholder="Will ETH go up this week?" value={form.question} onChange={(e) => setField("question", e.target.value)} className="mt-1 h-8 text-xs" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Outcome 0 (Token 0)</Label>
+                <Input placeholder="Up" value={form.outcome_0} onChange={(e) => setField("outcome_0", e.target.value)} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Outcome 1 (Token 1)</Label>
+                <Input placeholder="Down" value={form.outcome_1} onChange={(e) => setField("outcome_1", e.target.value)} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs font-medium">Slug</Label>
+              <Input placeholder="eth-up-week-1" value={form.slug} onChange={(e) => setField("slug", e.target.value)} className="mt-1 h-8 text-xs" />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Description</Label>
+              <Input placeholder="optional" value={form.description} onChange={(e) => setField("description", e.target.value)} className="mt-1 h-8 text-xs" />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Resolution Source</Label>
+              <Input placeholder="optional URL" value={form.resolution_source} onChange={(e) => setField("resolution_source", e.target.value)} className="mt-1 h-8 text-xs" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Start Date</Label>
+                <Input type="datetime-local" value={form.start_date} onChange={(e) => setField("start_date", e.target.value)} className="mt-1 h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">End Date</Label>
+                <Input type="datetime-local" value={form.end_date} onChange={(e) => setField("end_date", e.target.value)} className="mt-1 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-medium">Min Tick Size</Label>
+                <Input placeholder="0.01" value={form.order_price_min_tick_size} onChange={(e) => setField("order_price_min_tick_size", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Min Order Size</Label>
+                <Input placeholder="1" value={form.order_min_size} onChange={(e) => setField("order_min_size", e.target.value.trim())} className="mt-1 h-8 font-mono text-xs" />
+              </div>
+            </div>
+
+            <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full bg-orange-600 hover:bg-orange-700 text-white">
+              {loading ? "Creating..." : "Create Managed Oracle Market"}
+            </Button>
+
+            {error && <ErrorBox error={error} />}
+            {result && (
+              <SuccessBox>
+                <Label className="text-xs font-medium text-green-800 dark:text-green-200">Market Creation Accepted</Label>
+                <pre className="mt-2 overflow-x-auto rounded bg-white p-2 text-[10px] dark:bg-zinc-900">
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              </SuccessBox>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Relayer Wallets Tab
 // ---------------------------------------------------------------------------
 
@@ -1625,6 +1844,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
     CTF_ADMIN: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
     FEE_ADMIN: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
     TREASURY_ADMIN: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+    ORACLE_ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   };
 
   return (
@@ -1666,6 +1886,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
               <option value="CTF_ADMIN">CTF_ADMIN</option>
               <option value="FEE_ADMIN">FEE_ADMIN</option>
               <option value="TREASURY_ADMIN">TREASURY_ADMIN</option>
+              <option value="ORACLE_ADMIN">ORACLE_ADMIN</option>
             </select>
             <Input
               placeholder="Search by label..."
@@ -1820,6 +2041,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                   <option value="CTF_ADMIN">CTF_ADMIN</option>
                   <option value="FEE_ADMIN">FEE_ADMIN</option>
                   <option value="TREASURY_ADMIN">TREASURY_ADMIN</option>
+                  <option value="ORACLE_ADMIN">ORACLE_ADMIN</option>
                 </select>
               </div>
               <div>
@@ -3384,6 +3606,8 @@ const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[
   { address: "0xE34B1b9f36e8779546cE212f968e36916b9E1576", name: "Fee Module", contract_type: "fee_module" },
   { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
   { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
+  // update the admin-oracle address
+  { address: "0x58e1745bEdda7312C4CDdb72618923da1B90EfDE", name: "Admin Oracle", contract_type: "admin_oracle" },
   { address: "0x5D525Ab2C7F2eEEB345972405005949F69de08bA", name: "Treasury", contract_type: "treasury" },
 ];
 
@@ -3463,6 +3687,7 @@ function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
     fee_module: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
     uma_ctf_adapter: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
     managed_oracle: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+    admin_oracle: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
     treasury: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
