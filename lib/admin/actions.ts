@@ -171,6 +171,33 @@ export async function createRelayerWallet(
   }
 }
 
+/** POST /builders — creates a builder tenant; response includes `api_public_key` for client apps (gamma login). */
+export async function createBuilder(
+  dpmUrl: string,
+  payload: { name: string; magic_secret_key: string; magic_public_key: string }
+): Promise<
+  | { success: true; data: { api_public_key: string } }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/builders`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to create builder" };
+  }
+}
+
 export async function getSmartAccount(
   dpmUrl: string,
   params: { operator_id: string; address: string; builder_id?: string }

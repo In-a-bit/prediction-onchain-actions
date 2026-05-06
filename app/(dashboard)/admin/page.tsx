@@ -18,6 +18,7 @@ import {
   umaPushPrice,
   listRelayerWallets,
   createRelayerWallet,
+  createBuilder,
   getSmartAccount,
   getCollateralBalance,
   listContracts,
@@ -46,6 +47,7 @@ import {
 type Tab =
   | "events"
   | "relayer-wallets"
+  | "builders"
   | "smart-account"
   | "collateral"
   | "balances"
@@ -1875,6 +1877,111 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Builders Tab (POST /builders)
+// ---------------------------------------------------------------------------
+
+function BuildersTab({ dpmUrl }: { dpmUrl: string }) {
+  const [form, setForm] = useState({
+    name: "",
+    magic_public_key: "",
+    magic_secret_key: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [apiPublicKey, setApiPublicKey] = useState<string | null>(null);
+
+  function setField(key: keyof typeof form, val: string) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  async function handleSubmit() {
+    setLoading(true);
+    setError(null);
+    setApiPublicKey(null);
+    const res = await createBuilder(dpmUrl, {
+      name: form.name.trim(),
+      magic_public_key: form.magic_public_key.trim(),
+      magic_secret_key: form.magic_secret_key.trim(),
+    });
+    if (res.success) {
+      setApiPublicKey(res.data.api_public_key);
+      setForm({ name: "", magic_public_key: "", magic_secret_key: "" });
+    } else {
+      setError(res.error);
+    }
+    setLoading(false);
+  }
+
+  const canSubmit =
+    form.name.trim() &&
+    form.magic_public_key.trim() &&
+    form.magic_secret_key.trim() &&
+    !loading;
+
+  return (
+    <div className="space-y-4">
+      <Card title="Create builder (Magic tenant)">
+        <p className="mb-4 text-xs text-zinc-500">
+          Calls DPM{" "}
+          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">POST /builders</code>{" "}
+          with your Magic app credentials. Builder display name and Magic publishable key must be
+          unique. The returned{" "}
+          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">api_public_key</code> is the
+          tenant key clients send (e.g. gamma login).
+        </p>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Name</Label>
+            <Input
+              className="mt-1 font-mono text-sm"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+              placeholder="Tenant / builder display name"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Magic publishable key</Label>
+            <Input
+              className="mt-1 font-mono text-sm"
+              value={form.magic_public_key}
+              onChange={(e) => setField("magic_public_key", e.target.value)}
+              placeholder="pk_live_…"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Magic secret key</Label>
+            <Input
+              type="password"
+              className="mt-1 font-mono text-sm"
+              value={form.magic_secret_key}
+              onChange={(e) => setField("magic_secret_key", e.target.value)}
+              placeholder="sk_live_…"
+              autoComplete="off"
+            />
+          </div>
+          <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
+            {loading ? "Creating…" : "Create builder"}
+          </Button>
+          {error && <ErrorBox error={error} />}
+          {apiPublicKey && (
+            <SuccessBox>
+              <Label className="text-xs font-medium text-green-800 dark:text-green-200">
+                Builder API public key (save this — shown once)
+              </Label>
+              <p className="mt-2 break-all font-mono text-xs text-green-800 dark:text-green-200">
+                {apiPublicKey}
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Smart Account Tab
 // ---------------------------------------------------------------------------
 
@@ -3273,8 +3380,8 @@ function TreasuryTab() {
 const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[] = [
   { address: "0x9b4A302A548c7e313c2b74C461db7b84d3074A84", name: "USDC.e", contract_type: "usdc_e" },
   { address: "0x41cf0Cc822DDA607457cc5429FeEAc62A1Fb0ec1", name: "Conditional Tokens", contract_type: "conditional_tokens" },
-  { address: "0x9d98e0CFE6375035241E44D738f235eC7dd70369", name: "CTF Exchange", contract_type: "ctf_exchange" },
-  { address: "0x8074BdCac5219C1b1c10AEa2947A8A77eB3A2bc6", name: "Fee Module", contract_type: "fee_module" },
+  { address: "0xF740e33A790E31745CdCaC2e173E7B4585C172F9", name: "CTF Exchange", contract_type: "ctf_exchange" },
+  { address: "0xE34B1b9f36e8779546cE212f968e36916b9E1576", name: "Fee Module", contract_type: "fee_module" },
   { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
   { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
   { address: "0x5D525Ab2C7F2eEEB345972405005949F69de08bA", name: "Treasury", contract_type: "treasury" },
@@ -3504,6 +3611,7 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "events", label: "Events" },
     { key: "relayer-wallets", label: "Relayer Wallets" },
+    { key: "builders", label: "Builders" },
     { key: "smart-account", label: "Smart Account" },
     { key: "collateral", label: "Collateral Balance" },
     { key: "balances", label: "Balances" },
@@ -3572,6 +3680,7 @@ export default function AdminPage() {
         <div className="mx-auto max-w-4xl">
           <div className={activeTab === "events" ? "" : "hidden"}><EventsTab gammaUrl={gammaUrl} dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "relayer-wallets" ? "" : "hidden"}><RelayerWalletsTab dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "builders" ? "" : "hidden"}><BuildersTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "smart-account" ? "" : "hidden"}><SmartAccountTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "collateral" ? "" : "hidden"}><CollateralBalanceTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "balances" ? "" : "hidden"}><BalancesTab dpmUrl={dpmUrl} /></div>
