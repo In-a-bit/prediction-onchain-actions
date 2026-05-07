@@ -8,6 +8,7 @@ import { ProxyWalletFactoryAbi__factory } from "@/types/contracts/factories/Prox
 import { RelayHubAbi__factory } from "@/types/contracts/factories/RelayHubAbi__factory";
 import { UmaCtfAdaperAbi__factory } from "@/types/contracts/factories/UmaCtfAdaperAbi__factory";
 import { Treasury__factory } from "@/types/contracts/factories/Treasury__factory";
+import { CtfOracleAbi__factory } from "@/types/contracts/factories/CtfOracleAbi__factory";
 import type { ContractConfig } from "./types";
 
 export const contracts: Record<string, ContractConfig> = {
@@ -100,6 +101,15 @@ export const contracts: Record<string, ContractConfig> = {
     adminKeyEnv: "TREASURY_ADMIN_PRIVATE_KEY",
     adminAddressEnv: "TREASURY_ADMIN_ADDRESS",
     description: "Custodies native (POL) and USDC.e, fans them out to system wallets via batchTransfer",
+  },
+  "ctf-oracle": {
+    name: "CTF Oracle",
+    slug: "ctf-oracle",
+    factory: CtfOracleAbi__factory,
+    addressEnv: "CTF_ORACLE_ADDRESS",
+    adminKeyEnv: "CTF_ORACLE_ADMIN_PRIVATE_KEY",
+    adminAddressEnv: "CTF_ORACLE_ADMIN_ADDRESS",
+    description: "AdminOracle contract for reporting payouts on CTF markets",
   },
 };
 

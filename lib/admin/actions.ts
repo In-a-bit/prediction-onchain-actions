@@ -277,6 +277,34 @@ export async function signalBalanceAdded(
 
 // --- UMA Actions ---
 
+// --- AdminOracle Actions ---
+
+export async function adminOracleReportPayouts(
+  dpmUrl: string,
+  payload: { market_id: string; payouts: string[] }
+): Promise<
+  | { success: true; data: any }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/markets/admin-oracle/report-payouts`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to submit report payouts" };
+  }
+}
+
 export async function umaPropose(
   dpmUrl: string,
   payload: { market_id: string; proposer_address: string; proposed_price: string }

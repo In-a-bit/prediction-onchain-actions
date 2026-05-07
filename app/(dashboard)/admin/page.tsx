@@ -11,6 +11,7 @@ import {
   createEvent,
   createMarket,
   createAdminOracleMarket,
+  adminOracleReportPayouts,
   umaPropose,
   umaResolve,
   umaReset,
@@ -708,9 +709,16 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const [pushPriceError, setPushPriceError] = useState<string | null>(null);
   const [pushPriceResult, setPushPriceResult] = useState<any | null>(null);
 
+  const [showReportPayouts, setShowReportPayouts] = useState(false);
+  const [reportPayoutsValue, setReportPayoutsValue] = useState("");
+  const [reportPayoutsLoading, setReportPayoutsLoading] = useState(false);
+  const [reportPayoutsError, setReportPayoutsError] = useState<string | null>(null);
+  const [reportPayoutsResult, setReportPayoutsResult] = useState<any | null>(null);
+
   const marketExternalId: string = m.id ?? m.ID ?? "";
   const questionId: string = m.question_id ?? m.questionID ?? "";
   const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
+  const isAdminOracle = (m.market_type ?? m.marketType ?? "") === "ADMIN_ORACLE";
 
   async function handlePropose() {
     if (!marketExternalId) {
@@ -835,6 +843,29 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
     setPushPriceLoading(false);
   }
 
+  async function handleReportPayouts() {
+    if (!marketExternalId) {
+      setReportPayoutsError("Market has no external ID — cannot submit report payouts");
+      return;
+    }
+    const payouts = reportPayoutsValue.split(",").map((s) => s.trim()).filter(Boolean);
+    if (payouts.length === 0) {
+      setReportPayoutsError("Payouts are required (e.g. \"1000000000000000000,0\" for YES wins)");
+      return;
+    }
+    setReportPayoutsLoading(true);
+    setReportPayoutsError(null);
+    setReportPayoutsResult(null);
+
+    const res = await adminOracleReportPayouts(dpmUrl, { market_id: marketExternalId, payouts });
+    if (res.success) {
+      setReportPayoutsResult(res.data);
+    } else {
+      setReportPayoutsError(res.error);
+    }
+    setReportPayoutsLoading(false);
+  }
+
   const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
 
   return (
@@ -850,10 +881,16 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             (m.ready ? "DEPLOYED" : m.deploying ? "DEPLOYING" : "PENDING")
           }
         />
-        {umaStatus && (
-          <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-            UMA: {umaStatus}
+        {isAdminOracle ? (
+          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+            ADMIN_ORACLE
           </Badge>
+        ) : (
+          umaStatus && (
+            <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+              UMA: {umaStatus}
+            </Badge>
+          )
         )}
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
@@ -904,88 +941,113 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
         </div>
       )}
 
-      {/* UMA Actions */}
+      {/* Market Actions */}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px]"
-          onClick={() => {
-            setShowPropose((s) => !s);
-            setProposeError(null);
-            setProposeResult(null);
-          }}
-        >
-          {showPropose ? "Cancel" : "Propose"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px]"
-          onClick={handleResolve}
-          disabled={resolveLoading}
-        >
-          {resolveLoading ? "Resolving..." : "Resolve"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px] border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-          onClick={() => {
-            setShowDispute((s) => !s);
-            setDisputeError(null);
-            setDisputeResult(null);
-          }}
-          disabled={!questionId}
-        >
-          {showDispute ? "Cancel" : "Dispute"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950"
-          onClick={handleReset}
-          disabled={resetLoading}
-        >
-          {resetLoading ? "Resetting..." : "Reset"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px] border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950"
-          onClick={() => {
-            setShowManualResolve((s) => !s);
-            setManualResolveError(null);
-            setManualResolveResult(null);
-          }}
-        >
-          {showManualResolve ? "Cancel" : "Resolve Manually"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-3 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
-          onClick={() => {
-            setShowPushPrice((s) => !s);
-            setPushPriceError(null);
-            setPushPriceResult(null);
-          }}
-          disabled={!questionId}
-          title="Simulate UMA DVM vote outcome on the mock oracle (dev-only)"
-        >
-          {showPushPrice ? "Cancel" : "Push Price (Mock DVM)"}
-        </Button>
-        {resolveError && <span className="text-[11px] text-red-600">{resolveError}</span>}
-        {resolveResult && (
-          <span className="text-[11px] text-green-600">
-            Resolve submitted (workflow: {resolveResult.workflow_id})
-          </span>
-        )}
-        {resetError && <span className="text-[11px] text-red-600">{resetError}</span>}
-        {resetResult && (
-          <span className="text-[11px] text-green-600">
-            Reset submitted (workflow: {resetResult.workflow_id})
-          </span>
+        {isAdminOracle ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950"
+              onClick={() => {
+                setShowReportPayouts((s) => !s);
+                setReportPayoutsError(null);
+                setReportPayoutsResult(null);
+              }}
+            >
+              {showReportPayouts ? "Cancel" : "Report Payouts"}
+            </Button>
+            {reportPayoutsError && <span className="text-[11px] text-red-600">{reportPayoutsError}</span>}
+            {reportPayoutsResult && (
+              <span className="text-[11px] text-green-600">
+                Submitted (workflow: {reportPayoutsResult.workflow_id})
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px]"
+              onClick={() => {
+                setShowPropose((s) => !s);
+                setProposeError(null);
+                setProposeResult(null);
+              }}
+            >
+              {showPropose ? "Cancel" : "Propose"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px]"
+              onClick={handleResolve}
+              disabled={resolveLoading}
+            >
+              {resolveLoading ? "Resolving..." : "Resolve"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px] border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+              onClick={() => {
+                setShowDispute((s) => !s);
+                setDisputeError(null);
+                setDisputeResult(null);
+              }}
+              disabled={!questionId}
+            >
+              {showDispute ? "Cancel" : "Dispute"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950"
+              onClick={handleReset}
+              disabled={resetLoading}
+            >
+              {resetLoading ? "Resetting..." : "Reset"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px] border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950"
+              onClick={() => {
+                setShowManualResolve((s) => !s);
+                setManualResolveError(null);
+                setManualResolveResult(null);
+              }}
+            >
+              {showManualResolve ? "Cancel" : "Resolve Manually"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-3 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
+              onClick={() => {
+                setShowPushPrice((s) => !s);
+                setPushPriceError(null);
+                setPushPriceResult(null);
+              }}
+              disabled={!questionId}
+              title="Simulate UMA DVM vote outcome on the mock oracle (dev-only)"
+            >
+              {showPushPrice ? "Cancel" : "Push Price (Mock DVM)"}
+            </Button>
+            {resolveError && <span className="text-[11px] text-red-600">{resolveError}</span>}
+            {resolveResult && (
+              <span className="text-[11px] text-green-600">
+                Resolve submitted (workflow: {resolveResult.workflow_id})
+              </span>
+            )}
+            {resetError && <span className="text-[11px] text-red-600">{resetError}</span>}
+            {resetResult && (
+              <span className="text-[11px] text-green-600">
+                Reset submitted (workflow: {resetResult.workflow_id})
+              </span>
+            )}
+          </>
         )}
       </div>
 
@@ -1021,6 +1083,44 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
                 Dispute TX: {disputeResult.txHash}
               </p>
             </SuccessBox>
+          )}
+        </div>
+      )}
+
+      {showReportPayouts && (
+        <div className="mt-3 space-y-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+            Report payouts via AdminOracle contract
+          </p>
+          <div>
+            <Label className="text-[11px] font-medium">
+              Payouts <span className="text-red-500">*</span>{" "}
+              <span className="text-zinc-400">(comma-separated, e.g. "1,0" for YES wins)</span>
+            </Label>
+            <Input
+              placeholder="1,0"
+              value={reportPayoutsValue}
+              onChange={(e) => setReportPayoutsValue(e.target.value)}
+              className="mt-1 h-7 font-mono text-[11px]"
+            />
+          </div>
+          <Button
+            size="sm"
+            className="h-7 w-full bg-emerald-600 text-[11px] hover:bg-emerald-700 text-white"
+            onClick={handleReportPayouts}
+            disabled={reportPayoutsLoading || !reportPayoutsValue.trim()}
+          >
+            {reportPayoutsLoading ? "Submitting..." : "Submit Report Payouts"}
+          </Button>
+          {reportPayoutsError && (
+            <p className="text-[11px] text-red-600">{reportPayoutsError}</p>
+          )}
+          {reportPayoutsResult && (
+            <div className="rounded bg-emerald-100 p-2 dark:bg-emerald-900/40">
+              <p className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+                Submitted — workflow: {reportPayoutsResult.workflow_id}
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -3778,8 +3878,7 @@ const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[
   { address: "0xE34B1b9f36e8779546cE212f968e36916b9E1576", name: "Fee Module", contract_type: "fee_module" },
   { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
   { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
-  // update the admin-oracle address
-  { address: "0x58e1745bEdda7312C4CDdb72618923da1B90EfDE", name: "Admin Oracle", contract_type: "admin_oracle" },
+  { address: "0xbab7940F8a713C4e64CbCfeEC85FEDb8fEecC225", name: "CTF Oracle", contract_type: "admin_oracle" },
   { address: "0x5D525Ab2C7F2eEEB345972405005949F69de08bA", name: "Treasury", contract_type: "treasury" },
 ];
 
