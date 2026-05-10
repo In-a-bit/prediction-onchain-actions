@@ -121,7 +121,7 @@ export async function createMarket(
   }
 }
 
-export async function createAdminOracleMarket(
+export async function createCtfOracleMarket(
   dpmUrl: string,
   payload: Record<string, any>
 ): Promise<
@@ -129,7 +129,7 @@ export async function createAdminOracleMarket(
   | { success: false; error: string }
 > {
   try {
-    const res = await fetch(`${dpmUrl}/markets/admin-oracle`, {
+    const res = await fetch(`${dpmUrl}/markets/ctf-oracle`, {
       method: "POST",
       headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
@@ -277,9 +277,9 @@ export async function signalBalanceAdded(
 
 // --- UMA Actions ---
 
-// --- AdminOracle Actions ---
+// --- CtfOracle Actions ---
 
-export async function adminOracleReportPayouts(
+export async function ctfOracleReportPayouts(
   dpmUrl: string,
   payload: { market_id: string; payouts: string[] }
 ): Promise<
@@ -287,7 +287,7 @@ export async function adminOracleReportPayouts(
   | { success: false; error: string }
 > {
   try {
-    const res = await fetch(`${dpmUrl}/markets/admin-oracle/report-payouts`, {
+    const res = await fetch(`${dpmUrl}/markets/ctf-oracle/report-payouts`, {
       method: "POST",
       headers: dpmPostHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),

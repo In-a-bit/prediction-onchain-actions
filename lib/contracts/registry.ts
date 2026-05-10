@@ -109,7 +109,7 @@ export const contracts: Record<string, ContractConfig> = {
     addressEnv: "CTF_ORACLE_ADDRESS",
     adminKeyEnv: "CTF_ORACLE_ADMIN_PRIVATE_KEY",
     adminAddressEnv: "CTF_ORACLE_ADMIN_ADDRESS",
-    description: "AdminOracle contract for reporting payouts on CTF markets",
+    description: "CtfOracle contract for reporting payouts on CTF markets",
   },
 };
 

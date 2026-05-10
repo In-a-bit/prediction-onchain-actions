@@ -10,8 +10,8 @@ import {
   getEventBySlug,
   createEvent,
   createMarket,
-  createAdminOracleMarket,
-  adminOracleReportPayouts,
+  createCtfOracleMarket,
+  ctfOracleReportPayouts,
   umaPropose,
   umaResolve,
   umaReset,
@@ -539,7 +539,7 @@ function EventsTab({
                             });
                           }}
                         >
-                          + AO Market
+                          + CO Market
                         </Button>
                       </div>
                     </div>
@@ -591,7 +591,7 @@ function EventsTab({
 
       {/* Create Managed Oracle Market Modal */}
       {moMarketModalEvent && (
-        <CreateAdminOracleMarketModal
+        <CreateCtfOracleMarketModal
           dpmUrl={dpmUrl}
           eventExternalId={moMarketModalEvent.id}
           eventTitle={moMarketModalEvent.title}
@@ -718,7 +718,7 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const marketExternalId: string = m.id ?? m.ID ?? "";
   const questionId: string = m.question_id ?? m.questionID ?? "";
   const umaStatus = m.uma_resolution_status ?? m.umaResolutionStatus ?? "";
-  const isAdminOracle = (m.market_type ?? m.marketType ?? "") === "ADMIN_ORACLE";
+  const isCtfOracle = (m.resolution_type ?? m.resolutionType ?? m.market_type ?? m.marketType ?? "") === "CTF_ORACLE";
 
   async function handlePropose() {
     if (!marketExternalId) {
@@ -857,7 +857,7 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
     setReportPayoutsError(null);
     setReportPayoutsResult(null);
 
-    const res = await adminOracleReportPayouts(dpmUrl, { market_id: marketExternalId, payouts });
+    const res = await ctfOracleReportPayouts(dpmUrl, { market_id: marketExternalId, payouts });
     if (res.success) {
       setReportPayoutsResult(res.data);
     } else {
@@ -881,9 +881,9 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             (m.ready ? "DEPLOYED" : m.deploying ? "DEPLOYING" : "PENDING")
           }
         />
-        {isAdminOracle ? (
+        {isCtfOracle ? (
           <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
-            ADMIN_ORACLE
+            CTF_ORACLE
           </Badge>
         ) : (
           umaStatus && (
@@ -943,7 +943,7 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
 
       {/* Market Actions */}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-        {isAdminOracle ? (
+        {isCtfOracle ? (
           <>
             <Button
               variant="outline"
@@ -1090,7 +1090,7 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
       {showReportPayouts && (
         <div className="mt-3 space-y-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
           <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-            Report payouts via AdminOracle contract
+            Report payouts via CtfOracle contract
           </p>
           <div>
             <Label className="text-[11px] font-medium">
@@ -1838,7 +1838,7 @@ function CreateMarketModal({
 // Create Managed Oracle Market Modal
 // ---------------------------------------------------------------------------
 
-function CreateAdminOracleMarketModal({
+function CreateCtfOracleMarketModal({
   dpmUrl,
   eventExternalId,
   eventTitle,
@@ -1911,7 +1911,7 @@ function CreateAdminOracleMarketModal({
     if (form.order_price_min_tick_size) payload.order_price_min_tick_size = parseFloat(form.order_price_min_tick_size);
     if (form.order_min_size) payload.order_min_size = parseInt(form.order_min_size, 10);
 
-    const res = await createAdminOracleMarket(dpmUrl, payload);
+    const res = await createCtfOracleMarket(dpmUrl, payload);
     if (res.success) {
       setResult(res.data);
       onCreated();
@@ -1935,7 +1935,7 @@ function CreateAdminOracleMarketModal({
               <span className="ml-2 font-mono text-zinc-400">{eventExternalId.slice(0, 12)}...</span>
             </p>
             <p className="mt-0.5 text-[10px] text-orange-600 dark:text-orange-400">
-              Admin-settled via AdminOracle · No UMA required
+              Admin-settled via CtfOracle · No UMA required
             </p>
           </div>
           <button onClick={onClose} className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300">
@@ -3878,7 +3878,7 @@ const KNOWN_CONTRACTS: { address: string; name: string; contract_type: string }[
   { address: "0xE34B1b9f36e8779546cE212f968e36916b9E1576", name: "Fee Module", contract_type: "fee_module" },
   { address: "0xA27381a00A41fBb8f44Ee36884EeDD521895817c", name: "UMA CTF Adapter", contract_type: "uma_ctf_adapter" },
   { address: "0xd4A98869e9711338535AfE76EB736a1127cbA60f", name: "Managed Oracle", contract_type: "managed_oracle" },
-  { address: "0xbab7940F8a713C4e64CbCfeEC85FEDb8fEecC225", name: "CTF Oracle", contract_type: "admin_oracle" },
+  { address: "0xbab7940F8a713C4e64CbCfeEC85FEDb8fEecC225", name: "CTF Oracle", contract_type: "ctf_oracle" },
   { address: "0x5D525Ab2C7F2eEEB345972405005949F69de08bA", name: "Treasury", contract_type: "treasury" },
 ];
 
@@ -3958,7 +3958,7 @@ function ContractsTab({ dpmUrl }: { dpmUrl: string }) {
     fee_module: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200",
     uma_ctf_adapter: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
     managed_oracle: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
-    admin_oracle: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+    ctf_oracle: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
     treasury: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
