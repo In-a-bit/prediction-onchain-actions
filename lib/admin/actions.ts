@@ -13,7 +13,7 @@ export async function searchEvents(
         url.searchParams.set(key, value);
       }
     }
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     if (!res.ok) {
       const text = await res.text();
       return { success: false, error: `${res.status}: ${text}` };
@@ -32,6 +32,7 @@ export async function getEventBySlug(
   try {
     const res = await fetch(`${gammaUrl}/events/slug/${encodeURIComponent(slug)}`, {
       cache: "no-store",
+      headers: appApiHeaders(),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -51,6 +52,7 @@ export async function getMarketBySlug(
   try {
     const res = await fetch(`${gammaUrl}/markets/slug/${encodeURIComponent(slug)}`, {
       cache: "no-store",
+      headers: appApiHeaders(),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -65,8 +67,12 @@ export async function getMarketBySlug(
 
 // --- DPM API (write operations) ---
 
-function dpmPostHeaders(extra?: Record<string, string>): Record<string, string> {
+function dpmAdminHeaders(extra?: Record<string, string>): Record<string, string> {
   return { "X-API-Key": process.env.DPM_API_KEY ?? "", ...extra };
+}
+
+function appApiHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { "X-API-Key": process.env.APP_API_KEY ?? "", ...extra };
 }
 
 export async function createEvent(
@@ -79,7 +85,7 @@ export async function createEvent(
   try {
     const res = await fetch(`${dpmUrl}/events`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -105,7 +111,7 @@ export async function createMarket(
   try {
     const res = await fetch(`${dpmUrl}/markets`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -131,7 +137,7 @@ export async function createCtfOracleMarket(
   try {
     const res = await fetch(`${dpmUrl}/markets/ctf-oracle`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -158,7 +164,7 @@ export async function listRelayerWallets(
         url.searchParams.set(key, value);
       }
     }
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
@@ -283,7 +289,7 @@ export async function createRelayerWallet(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -310,7 +316,7 @@ export async function createBuilder(
   try {
     const res = await fetch(`${dpmUrl}/builders`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -338,7 +344,7 @@ export async function getSmartAccount(
     url.searchParams.set("operator_id", params.operator_id);
     url.searchParams.set("address", params.address);
     if (params.builder_id) url.searchParams.set("builder_id", params.builder_id);
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
@@ -361,7 +367,7 @@ export async function signalBalanceAdded(
   try {
     const res = await fetch(`${dpmUrl}/markets/signal-balance`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ workflow_id: workflowId }),
       cache: "no-store",
     });
@@ -391,7 +397,7 @@ export async function ctfOracleReportPayouts(
   try {
     const res = await fetch(`${dpmUrl}/markets/ctf-oracle/report-payouts`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -417,7 +423,7 @@ export async function umaPropose(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/propose`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -443,7 +449,7 @@ export async function umaResolve(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/resolve`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -469,7 +475,7 @@ export async function umaReset(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/reset`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -495,7 +501,7 @@ export async function umaResolveManually(
   try {
     const res = await fetch(`${dpmUrl}/markets/uma/resolve-manually`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -697,7 +703,10 @@ export async function listContracts(
   dpmUrl: string
 ): Promise<{ success: true; data: any[] } | { success: false; error: string }> {
   try {
-    const res = await fetch(`${dpmUrl}/contracts`, { cache: "no-store" });
+    const res = await fetch(`${dpmUrl}/contracts`, {
+      cache: "no-store",
+      headers: appApiHeaders(),
+    });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
@@ -717,7 +726,7 @@ export async function createContract(
   try {
     const res = await fetch(`${dpmUrl}/contracts`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -751,7 +760,7 @@ export async function listTags(
         url.searchParams.set(key, value);
       }
     }
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     if (!res.ok) {
       return { success: false, error: await readErrorMessage(res) };
     }
@@ -789,7 +798,7 @@ export async function createTag(
   try {
     const res = await fetch(`${dpmUrl}/tags`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -823,7 +832,7 @@ export async function listSeries(
         url.searchParams.set(key, value);
       }
     }
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     if (!res.ok) {
       return { success: false, error: await readErrorMessage(res) };
     }
@@ -877,7 +886,7 @@ export async function createSeries(
   try {
     const res = await fetch(`${dpmUrl}/series`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -912,7 +921,7 @@ export async function getCollateralBalance(
   try {
     const url = new URL("/collateral/balance", dpmUrl);
     url.searchParams.set("address", address);
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
@@ -945,7 +954,7 @@ export async function listUsers(
         url.searchParams.set(key, value);
       }
     }
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
@@ -966,7 +975,7 @@ export async function backfillCollateral(
   try {
     const res = await fetch(`${dpmUrl}/collateral/backfill`, {
       method: "POST",
-      headers: dpmPostHeaders(),
+      headers: dpmAdminHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -988,7 +997,7 @@ export async function syncCollateralUser(
   try {
     const res = await fetch(`${dpmUrl}/collateral/sync/${userId}`, {
       method: "POST",
-      headers: dpmPostHeaders(),
+      headers: dpmAdminHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -1010,6 +1019,7 @@ export async function getUserTokenBalances(
   try {
     const res = await fetch(`${dpmUrl}/users/${userId}/token-balances`, {
       cache: "no-store",
+      headers: appApiHeaders(),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
@@ -1031,7 +1041,7 @@ export async function syncUserTokenBalance(
   try {
     const res = await fetch(`${dpmUrl}/users/${userId}/token-balance`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ token_id: tokenId }),
       cache: "no-store",
     });
@@ -1054,7 +1064,7 @@ export async function syncUserTokenBalancesFromOrders(
   try {
     const res = await fetch(`${dpmUrl}/users/${userId}/token-balances`, {
       method: "POST",
-      headers: dpmPostHeaders(),
+      headers: dpmAdminHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -1309,7 +1319,7 @@ export async function getConditionalTokenBalance(
     const url = new URL("/conditional-tokens/balance", dpmUrl);
     url.searchParams.set("address", address);
     url.searchParams.set("token_id", tokenId);
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), { cache: "no-store", headers: appApiHeaders() });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const errMsg =
