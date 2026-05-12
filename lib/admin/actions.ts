@@ -1219,3 +1219,97 @@ export async function getConditionalTokenBalance(
     return { success: false, error: error.message || "Failed to get conditional token balance" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Wallet-init / Mnemonic (POST /relayer-wallets/init + /mnemonic endpoints)
+// ---------------------------------------------------------------------------
+
+export type MnemonicStatus = {
+  exists: boolean;
+  max_used_index: number;
+  created_at?: string;
+};
+
+/** GET /relayer-wallets/mnemonic — public read, no API key needed. */
+export async function getMnemonicStatus(
+  dpmUrl: string
+): Promise<{ success: true; data: MnemonicStatus } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/mnemonic`, { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load mnemonic status" };
+  }
+}
+
+/** POST /relayer-wallets/mnemonic/init — idempotent; creates singleton row if missing. */
+export async function initMnemonic(
+  dpmUrl: string
+): Promise<{ success: true; data: MnemonicStatus } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/mnemonic/init`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to init mnemonic" };
+  }
+}
+
+export type WalletType =
+  | "TREASURY_ADMIN"
+  | "FEE_ADMIN"
+  | "CTF_ADMIN"
+  | "UMA_ADMIN"
+  | "RELAYER_ADMIN"
+  | "ORACLE_ADMIN";
+
+export type InitRelayerWalletResponse = {
+  address: string;
+  type: WalletType;
+  initStatus: "PENDING" | "IN_PROGRESS" | "FAILED" | "COMPLETED";
+  wallet_id: number;
+  workflow_id: string;
+};
+
+/** POST /relayer-wallets/init — derives a new wallet from the HD mnemonic and
+ *  kicks off WalletInitWorkflow. Returns 202 with {address, type, initStatus}. */
+export async function initRelayerWallet(
+  dpmUrl: string,
+  payload: { type: WalletType; label?: string }
+): Promise<
+  | { success: true; data: InitRelayerWalletResponse }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/init`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to init relayer wallet" };
+  }
+}

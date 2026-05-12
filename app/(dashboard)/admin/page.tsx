@@ -83,15 +83,15 @@ const UMA_PRICE_OPTIONS: { value: string; label: string }[] = [
 
 const GAMMA_PRESETS = [
   { label: "Local (localhost:8084)", value: DEFAULT_GAMMA_URL },
-  ...(process.env.NEXT_PUBLIC_GAMMA_API_URL
-    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_GAMMA_API_URL }]
+  ...(process.env.NEXT_PUBLIC_GAMMA_API_BASE_URL
+    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_GAMMA_API_BASE_URL }]
     : []),
 ];
 
 const DPM_PRESETS = [
   { label: "Local (localhost:8086)", value: DEFAULT_DPM_URL },
-  ...(process.env.NEXT_PUBLIC_DPM_API_URL
-    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_DPM_API_URL }]
+  ...(process.env.NEXT_PUBLIC_DPM_API_BASE_URL
+    ? [{ label: "Remote", value: process.env.NEXT_PUBLIC_DPM_API_BASE_URL }]
     : []),
 ];
 
@@ -2035,6 +2035,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
   const [filterAddress, setFilterAddress] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterLabel, setFilterLabel] = useState("");
+  const [filterInitStatus, setFilterInitStatus] = useState("");
 
   const fetchWallets = useCallback(
     async (pageNum: number) => {
@@ -2050,7 +2051,13 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
 
       const res = await listRelayerWallets(dpmUrl, params);
       if (res.success) {
-        setWallets(res.data.data ?? []);
+        // init_status filter is client-side because the list API doesn't
+        // accept it as a query param yet; cheap given PAGE_SIZE=10.
+        let rows = (res.data.data ?? []) as any[];
+        if (filterInitStatus) {
+          rows = rows.filter((w) => w.init_status === filterInitStatus);
+        }
+        setWallets(rows);
         setTotal(res.data.total ?? 0);
         setTotalPages(res.data.total_pages ?? 0);
       } else {
@@ -2058,7 +2065,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
       }
       setListLoading(false);
     },
-    [dpmUrl, filterAddress, filterType, filterLabel]
+    [dpmUrl, filterAddress, filterType, filterLabel, filterInitStatus]
   );
 
   useEffect(() => {
@@ -2119,6 +2126,13 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
     ORACLE_ADMIN: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   };
 
+  const initStatusColors: Record<string, string> = {
+    PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    IN_PROGRESS: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    COMPLETED: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    FAILED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  };
+
   return (
     <div className="space-y-4">
       {/* Wallets List */}
@@ -2136,13 +2150,13 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
       >
         <div className="space-y-4">
           {/* Search filters */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Input
               placeholder="Search by address..."
               value={filterAddress}
               onChange={(e) => setFilterAddress(e.target.value.trim())}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="h-8 flex-1 font-mono text-xs"
+              className="h-8 min-w-[180px] flex-1 font-mono text-xs"
             />
             <select
               value={filterType}
@@ -2160,6 +2174,20 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
               <option value="TREASURY_ADMIN">TREASURY_ADMIN</option>
               <option value="ORACLE_ADMIN">ORACLE_ADMIN</option>
             </select>
+            <select
+              value={filterInitStatus}
+              onChange={(e) => {
+                setFilterInitStatus(e.target.value);
+                setPage(0);
+              }}
+              className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="">All Init Statuses</option>
+              <option value="PENDING">PENDING</option>
+              <option value="IN_PROGRESS">IN_PROGRESS</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="FAILED">FAILED</option>
+            </select>
             <Input
               placeholder="Search by label..."
               value={filterLabel}
@@ -2169,6 +2197,14 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
             />
             <Button variant="outline" size="sm" onClick={handleSearch}>
               Search
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchWallets(page)}
+              disabled={listLoading}
+            >
+              {listLoading ? "Refreshing…" : "Refresh"}
             </Button>
           </div>
 
@@ -2189,9 +2225,11 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                     <th className="px-3 py-2 font-medium text-zinc-500">ID</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Address</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Type</th>
-                    <th className="px-3 py-2 font-medium text-zinc-500">Label</th>
-                    <th className="px-3 py-2 font-medium text-zinc-500">Nonce</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Init</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Status</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Active</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Nonce</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Label</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Created</th>
                   </tr>
                 </thead>
@@ -2200,6 +2238,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                     <tr
                       key={w.id}
                       className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                      title={w.init_error ? `Init error: ${w.init_error}` : undefined}
                     >
                       <td className="px-3 py-2 font-mono text-zinc-500">
                         {w.id}
@@ -2217,11 +2256,13 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                           {w.wallet_type}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                        {w.label ?? "-"}
+                      <td className="px-3 py-2">
+                        <Badge className={initStatusColors[w.init_status] || "bg-zinc-100 text-zinc-800"}>
+                          {w.init_status || "—"}
+                        </Badge>
                       </td>
-                      <td className="px-3 py-2 font-mono">
-                        {w.current_nonce}
+                      <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
+                        {w.status}
                       </td>
                       <td className="px-3 py-2">
                         <span
@@ -2231,6 +2272,12 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                               : "bg-zinc-300 dark:bg-zinc-600"
                           }`}
                         />
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        {w.current_nonce}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
+                        {w.label ?? "-"}
                       </td>
                       <td className="px-3 py-2 text-zinc-500">
                         {w.created_at
@@ -4912,8 +4959,8 @@ function usePersistedState(key: string, defaultValue: string): [string, (v: stri
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Tab>("events");
-  const [gammaUrl, setGammaUrl] = usePersistedState("admin_gamma_url", process.env.NEXT_PUBLIC_GAMMA_API_URL || DEFAULT_GAMMA_URL);
-  const [dpmUrl, setDpmUrl] = usePersistedState("admin_dpm_url", process.env.NEXT_PUBLIC_DPM_API_URL || DEFAULT_DPM_URL);
+  const [gammaUrl, setGammaUrl] = usePersistedState("admin_gamma_url", process.env.NEXT_PUBLIC_GAMMA_API_BASE_URL || DEFAULT_GAMMA_URL);
+  const [dpmUrl, setDpmUrl] = usePersistedState("admin_dpm_url", process.env.NEXT_PUBLIC_DPM_API_BASE_URL || DEFAULT_DPM_URL);
   const [showConfig, setShowConfig] = useState(false);
 
   const tabs: { key: Tab; label: string }[] = [

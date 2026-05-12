@@ -58,6 +58,8 @@ export function Sidebar() {
           { href: "/register-relay", label: "Register Relay" },
           { href: "/setup-ctf-admin", label: "Setup CTF Admin" },
           { href: "/setup-uma-admin", label: "Setup UMA Admin" },
+          { href: "/mnemonic", label: "HD Mnemonic" },
+          { href: "/init-wallet", label: "Initialize Wallet" },
           { href: "/admin", label: "Admin CRM" },
         ].map(({ href, label }) => (
           <Link
