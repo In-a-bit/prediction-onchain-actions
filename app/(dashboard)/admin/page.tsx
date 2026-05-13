@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { RelayerWalletWithdrawDialog } from "@/components/admin/relayer-wallet-withdraw";
 import {
   searchEvents,
   getEventBySlug,
@@ -20,6 +21,7 @@ import {
   umaPushPrice,
   listRelayerWallets,
   createRelayerWallet,
+  deactivateRelayerWallet,
   createBuilder,
   getSmartAccount,
   getCollateralBalance,
@@ -52,6 +54,7 @@ import {
 
 type Tab =
   | "events"
+  | "create-from-slug"
   | "relayer-wallets"
   | "builders"
   | "smart-account"
@@ -2077,6 +2080,23 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
     fetchWallets(0);
   }
 
+  const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
+  const [withdrawWallet, setWithdrawWallet] = useState<any | null>(null);
+
+  async function handleDeactivate(w: any) {
+    if (!confirm(`Deactivate wallet ${w.address}?\nIt will no longer be auto-funded or picked up for relaying.`)) {
+      return;
+    }
+    setDeactivatingId(w.id);
+    const res = await deactivateRelayerWallet(dpmUrl, w.id);
+    setDeactivatingId(null);
+    if (res.success) {
+      fetchWallets(page);
+    } else {
+      setListError(res.error);
+    }
+  }
+
   // --- Create state ---
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -2231,6 +2251,7 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                     <th className="px-3 py-2 font-medium text-zinc-500">Nonce</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Label</th>
                     <th className="px-3 py-2 font-medium text-zinc-500">Created</th>
+                    <th className="px-3 py-2 font-medium text-zinc-500">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -2283,6 +2304,36 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
                         {w.created_at
                           ? new Date(w.created_at).toLocaleDateString()
                           : "-"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-1">
+                          {w.is_active ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
+                              disabled={deactivatingId === w.id}
+                              onClick={() => handleDeactivate(w)}
+                            >
+                              {deactivatingId === w.id ? "…" : "Deactivate"}
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-zinc-400">inactive</span>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => setWithdrawWallet(w)}
+                            title={
+                              w.is_active
+                                ? "Deactivate first — manual withdraws race the relayer pool"
+                                : "Withdraw POL or USDC.e from this wallet"
+                            }
+                          >
+                            Withdraw
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2413,6 +2464,18 @@ function RelayerWalletsTab({ dpmUrl }: { dpmUrl: string }) {
           </div>
         </Card>
       )}
+
+      <RelayerWalletWithdrawDialog
+        dpmUrl={dpmUrl}
+        walletId={withdrawWallet?.id ?? null}
+        walletAddress={withdrawWallet?.address}
+        isActive={!!withdrawWallet?.is_active}
+        open={withdrawWallet != null}
+        onOpenChange={(o) => {
+          if (!o) setWithdrawWallet(null);
+        }}
+        onWithdrawSuccess={() => fetchWallets(page)}
+      />
     </div>
   );
 }
@@ -4630,6 +4693,1187 @@ function SeriesSearchSelect({
 // Reads from gamma; writes go through dpm-api (POST /series).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Create-From-Slug Tab — paste a Polymarket slug, Gemini adapts the response
+// into our Series/Event/Markets payloads, user edits and submits in sequence.
+// ---------------------------------------------------------------------------
+
+type AdaptedSeries = {
+  slug: string;
+  title: string;
+  ticker?: string;
+  description?: string;
+  icon?: string;
+  series_type?: string;
+  recurrence?: string;
+  active: boolean;
+  closed: boolean;
+  archived: boolean;
+  restricted: boolean;
+  featured: boolean;
+  new: boolean;
+  requires_translation: boolean;
+  comment_count?: number;
+  metadata_type?: string;
+  metadata?: Record<string, any>;
+};
+
+type AdaptedEvent = {
+  slug: string;
+  title: string;
+  ticker?: string;
+  description?: string;
+  resolution_source?: string;
+  start_date?: string;
+  end_date?: string;
+  icon?: string;
+  active: boolean;
+  closed: boolean;
+  archived: boolean;
+  restricted: boolean;
+  neg_risk: boolean;
+  neg_risk_market_id?: string;
+  deployment_status: "PENDING" | "DEPLOYING" | "DEPLOYED";
+  comment_count?: number;
+  metadata_type?: string;
+  metadata?: Record<string, any>;
+};
+
+type AdaptedMarket = {
+  question: string;
+  slug?: string;
+  description?: string;
+  resolution_source?: string;
+  start_date?: string;
+  end_date?: string;
+  active: boolean;
+  closed: boolean;
+  archived: boolean;
+  restricted: boolean;
+  neg_risk: boolean;
+  neg_risk_market_id?: string;
+  neg_risk_request_id?: string;
+  neg_risk_other: boolean;
+  accepting_orders: boolean;
+  accepting_orders_timestamp?: string;
+  funded: boolean;
+  approved: boolean;
+  activation: "AUTO" | "MANUAL";
+  automatically_active: boolean;
+  clear_book_on_start: boolean;
+  rfq_enabled: boolean;
+  order_price_min_tick_size?: number;
+  order_min_size?: number;
+  uma_bond?: string;
+  uma_reward?: string;
+  uma_resolution_status?: string;
+  liveness?: string;
+  metadata_type?: string;
+  metadata?: Record<string, any>;
+};
+
+type AdaptedTag = {
+  slug: string;
+  label: string;
+};
+
+type AdaptResult = {
+  series: AdaptedSeries | null;
+  event: AdaptedEvent;
+  markets: AdaptedMarket[];
+  tags: AdaptedTag[];
+};
+
+// Convert ISO 8601 to the value expected by <input type="datetime-local">
+// (no timezone, no seconds). Returns "" on invalid input.
+function isoToLocalInput(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function emptyMarket(): AdaptedMarket {
+  return {
+    question: "",
+    active: true,
+    closed: false,
+    archived: false,
+    restricted: false,
+    neg_risk: false,
+    neg_risk_other: false,
+    accepting_orders: true,
+    funded: false,
+    approved: false,
+    activation: "AUTO",
+    automatically_active: false,
+    clear_book_on_start: false,
+    rfq_enabled: false,
+  };
+}
+
+type StepStatus = "idle" | "running" | "ok" | "skipped" | "failed";
+type StepResult = {
+  status: StepStatus;
+  message?: string;
+  data?: any;
+};
+
+function StepBadge({ status }: { status: StepStatus }) {
+  const map: Record<StepStatus, { label: string; cls: string }> = {
+    idle: { label: "Idle", cls: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" },
+    running: { label: "Running…", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+    ok: { label: "OK", cls: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+    skipped: { label: "Skipped", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
+    failed: { label: "Failed", cls: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+  };
+  const cfg = map[status];
+  return <Badge className={cfg.cls}>{cfg.label}</Badge>;
+}
+
+function CreateFromSlugTab({ gammaUrl, dpmUrl }: { gammaUrl: string; dpmUrl: string }) {
+  const [slug, setSlug] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const [series, setSeries] = useState<AdaptedSeries | null>(null);
+  const [includeSeries, setIncludeSeries] = useState(false);
+  const [event, setEvent] = useState<AdaptedEvent | null>(null);
+  const [markets, setMarkets] = useState<AdaptedMarket[]>([]);
+  const [tags, setTags] = useState<AdaptedTag[]>([]);
+  const [metadataDrafts, setMetadataDrafts] = useState<{
+    series: string;
+    event: string;
+    markets: string[];
+  }>({ series: "", event: "", markets: [] });
+
+  const [submitting, setSubmitting] = useState(false);
+  const [steps, setSteps] = useState<{
+    series: StepResult;
+    event: StepResult;
+    markets: StepResult[];
+    tags: StepResult[];
+  }>({ series: { status: "idle" }, event: { status: "idle" }, markets: [], tags: [] });
+
+  async function handleAdapt() {
+    if (!slug.trim()) return;
+    setFetching(true);
+    setFetchError(null);
+    setSeries(null);
+    setEvent(null);
+    setMarkets([]);
+    setTags([]);
+    setSteps({ series: { status: "idle" }, event: { status: "idle" }, markets: [], tags: [] });
+
+    try {
+      const res = await fetch("/api/admin/adapt-polymarket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: slug.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFetchError(body?.error || `HTTP ${res.status}`);
+        setFetching(false);
+        return;
+      }
+      const adapted = body.data as AdaptResult;
+      setSeries(adapted.series ?? null);
+      setIncludeSeries(!!adapted.series);
+      setEvent(adapted.event);
+      setMarkets(adapted.markets || []);
+      // Dedupe by slug just in case the model emitted duplicates.
+      const dedupedTags: AdaptedTag[] = [];
+      const seenSlugs = new Set<string>();
+      for (const t of adapted.tags || []) {
+        if (!t.slug || seenSlugs.has(t.slug)) continue;
+        seenSlugs.add(t.slug);
+        dedupedTags.push({ slug: t.slug, label: t.label || t.slug });
+      }
+      setTags(dedupedTags);
+      setMetadataDrafts({
+        series: adapted.series?.metadata ? JSON.stringify(adapted.series.metadata, null, 2) : "",
+        event: adapted.event.metadata ? JSON.stringify(adapted.event.metadata, null, 2) : "",
+        markets: (adapted.markets || []).map((m) =>
+          m.metadata ? JSON.stringify(m.metadata, null, 2) : ""
+        ),
+      });
+      setSteps({
+        series: { status: "idle" },
+        event: { status: "idle" },
+        markets: (adapted.markets || []).map(() => ({ status: "idle" })),
+        tags: dedupedTags.map(() => ({ status: "idle" })),
+      });
+    } catch (e: any) {
+      setFetchError(e?.message || "Failed to fetch & adapt");
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  function updateSeries(patch: Partial<AdaptedSeries>) {
+    setSeries((s) => (s ? { ...s, ...patch } : s));
+  }
+  function updateEvent(patch: Partial<AdaptedEvent>) {
+    setEvent((e) => (e ? { ...e, ...patch } : e));
+  }
+  function updateMarket(idx: number, patch: Partial<AdaptedMarket>) {
+    setMarkets((arr) => arr.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
+  }
+  function addMarket() {
+    setMarkets((arr) => [...arr, emptyMarket()]);
+    setMetadataDrafts((d) => ({ ...d, markets: [...d.markets, ""] }));
+    setSteps((s) => ({ ...s, markets: [...s.markets, { status: "idle" }] }));
+  }
+  function removeMarket(idx: number) {
+    setMarkets((arr) => arr.filter((_, i) => i !== idx));
+    setMetadataDrafts((d) => ({ ...d, markets: d.markets.filter((_, i) => i !== idx) }));
+    setSteps((s) => ({ ...s, markets: s.markets.filter((_, i) => i !== idx) }));
+  }
+  function updateTag(idx: number, patch: Partial<AdaptedTag>) {
+    setTags((arr) => arr.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
+  }
+  function addTag() {
+    setTags((arr) => [...arr, { slug: "", label: "" }]);
+    setSteps((s) => ({ ...s, tags: [...s.tags, { status: "idle" }] }));
+  }
+  function removeTag(idx: number) {
+    setTags((arr) => arr.filter((_, i) => i !== idx));
+    setSteps((s) => ({ ...s, tags: s.tags.filter((_, i) => i !== idx) }));
+  }
+
+  function buildSeriesPayload(): Parameters<typeof createSeries>[1] | null {
+    if (!series) return null;
+    const out: Parameters<typeof createSeries>[1] = {
+      slug: series.slug,
+      title: series.title,
+      active: series.active,
+      closed: series.closed,
+      archived: series.archived,
+      restricted: series.restricted,
+      featured: series.featured,
+      new: series.new,
+      requires_translation: series.requires_translation,
+    };
+    if (series.ticker) out.ticker = series.ticker;
+    if (series.description) out.description = series.description;
+    if (series.icon) out.icon = series.icon;
+    if (series.series_type) out.series_type = series.series_type;
+    if (series.recurrence) out.recurrence = series.recurrence;
+    if (typeof series.comment_count === "number") out.comment_count = series.comment_count;
+    if (series.metadata_type) out.metadata_type = series.metadata_type;
+    if (metadataDrafts.series.trim()) {
+      out.metadata = JSON.parse(metadataDrafts.series);
+    }
+    return out;
+  }
+
+  function buildEventPayload(seriesExternalId: string | undefined, tagIds: number[]): Record<string, any> {
+    if (!event) throw new Error("event is null");
+    const out: Record<string, any> = {
+      slug: event.slug,
+      title: event.title,
+      active: event.active,
+      closed: event.closed,
+      archived: event.archived,
+      restricted: event.restricted,
+      neg_risk: event.neg_risk,
+      deployment_status: event.deployment_status,
+    };
+    if (event.ticker) out.ticker = event.ticker;
+    if (event.description) out.description = event.description;
+    if (event.resolution_source) out.resolution_source = event.resolution_source;
+    if (event.start_date) out.start_date = new Date(event.start_date).toISOString();
+    if (event.end_date) out.end_date = new Date(event.end_date).toISOString();
+    if (event.icon) out.icon = event.icon;
+    if (event.neg_risk_market_id) out.neg_risk_market_id = event.neg_risk_market_id;
+    if (typeof event.comment_count === "number") out.comment_count = event.comment_count;
+    if (event.metadata_type) out.metadata_type = event.metadata_type;
+    if (metadataDrafts.event.trim()) out.metadata = JSON.parse(metadataDrafts.event);
+    if (seriesExternalId) out.series_external_id = seriesExternalId;
+    if (tagIds.length > 0) out.tag_ids = tagIds;
+    return out;
+  }
+
+  function buildMarketPayload(m: AdaptedMarket, idx: number, eventExternalId: string): Record<string, any> {
+    const out: Record<string, any> = {
+      event_external_id: eventExternalId,
+      question: m.question,
+      active: m.active,
+      closed: m.closed,
+      archived: m.archived,
+      restricted: m.restricted,
+      neg_risk: m.neg_risk,
+      neg_risk_other: m.neg_risk_other,
+      accepting_orders: m.accepting_orders,
+      funded: m.funded,
+      approved: m.approved,
+      activation: m.activation,
+      automatically_active: m.automatically_active,
+      clear_book_on_start: m.clear_book_on_start,
+      rfq_enabled: m.rfq_enabled,
+    };
+    if (m.slug) out.slug = m.slug;
+    if (m.description) out.description = m.description;
+    if (m.resolution_source) out.resolution_source = m.resolution_source;
+    if (m.start_date) out.start_date = new Date(m.start_date).toISOString();
+    if (m.end_date) out.end_date = new Date(m.end_date).toISOString();
+    if (m.accepting_orders_timestamp) out.accepting_orders_timestamp = new Date(m.accepting_orders_timestamp).toISOString();
+    if (m.neg_risk_market_id) out.neg_risk_market_id = m.neg_risk_market_id;
+    if (m.neg_risk_request_id) out.neg_risk_request_id = m.neg_risk_request_id;
+    if (typeof m.order_price_min_tick_size === "number") out.order_price_min_tick_size = m.order_price_min_tick_size;
+    if (typeof m.order_min_size === "number") out.order_min_size = m.order_min_size;
+    if (m.uma_bond) out.uma_bond = m.uma_bond;
+    if (m.uma_reward) out.uma_reward = m.uma_reward;
+    if (m.uma_resolution_status) out.uma_resolution_status = m.uma_resolution_status;
+    if (m.liveness) out.liveness = m.liveness;
+    if (m.metadata_type) out.metadata_type = m.metadata_type;
+    const draft = metadataDrafts.markets[idx];
+    if (draft && draft.trim()) out.metadata = JSON.parse(draft);
+    return out;
+  }
+
+  async function handleCreateAll() {
+    if (!event) return;
+    setSubmitting(true);
+
+    // Validate metadata JSON drafts up-front
+    if (includeSeries && metadataDrafts.series.trim() && !isMetadataValid(metadataDrafts.series)) {
+      setSteps((s) => ({ ...s, series: { status: "failed", message: "Series metadata JSON invalid" } }));
+      setSubmitting(false);
+      return;
+    }
+    if (metadataDrafts.event.trim() && !isMetadataValid(metadataDrafts.event)) {
+      setSteps((s) => ({ ...s, event: { status: "failed", message: "Event metadata JSON invalid" } }));
+      setSubmitting(false);
+      return;
+    }
+    for (let i = 0; i < markets.length; i++) {
+      const d = metadataDrafts.markets[i] || "";
+      if (d.trim() && !isMetadataValid(d)) {
+        setSteps((s) => {
+          const next = [...s.markets];
+          next[i] = { status: "failed", message: `Market #${i + 1} metadata JSON invalid` };
+          return { ...s, markets: next };
+        });
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // 1. Series (optional)
+    let seriesExternalId: string | undefined;
+    if (includeSeries && series) {
+      setSteps((s) => ({ ...s, series: { status: "running" } }));
+      const payload = buildSeriesPayload();
+      if (!payload) {
+        setSteps((s) => ({ ...s, series: { status: "failed", message: "series payload missing" } }));
+        setSubmitting(false);
+        return;
+      }
+      const res = await createSeries(dpmUrl, payload);
+      if (!res.success) {
+        setSteps((s) => ({ ...s, series: { status: "failed", message: res.error } }));
+        setSubmitting(false);
+        return;
+      }
+      seriesExternalId = res.data?.external_id || res.data?.id;
+      setSteps((s) => ({
+        ...s,
+        series: { status: "ok", message: `external_id: ${seriesExternalId || "(unknown)"}`, data: res.data },
+      }));
+    } else {
+      setSteps((s) => ({ ...s, series: { status: "skipped" } }));
+    }
+
+    // 2. Tags (upsert by slug)
+    const resolvedTagIds: number[] = [];
+    for (let i = 0; i < tags.length; i++) {
+      const tag = tags[i];
+      if (!tag.slug.trim()) {
+        setSteps((s) => {
+          const next = [...s.tags];
+          next[i] = { status: "failed", message: "slug is empty" };
+          return { ...s, tags: next };
+        });
+        setSubmitting(false);
+        return;
+      }
+      setSteps((s) => {
+        const next = [...s.tags];
+        next[i] = { status: "running" };
+        return { ...s, tags: next };
+      });
+
+      // Exact-slug match against gamma. listTags search is fuzzy, so we filter
+      // the page client-side for an exact slug hit before deciding to create.
+      const lookup = await listTags(gammaUrl, { search: tag.slug, limit: "20" });
+      if (!lookup.success) {
+        setSteps((s) => {
+          const next = [...s.tags];
+          next[i] = { status: "failed", message: `lookup failed: ${lookup.error}` };
+          return { ...s, tags: next };
+        });
+        setSubmitting(false);
+        return;
+      }
+      const existing = (lookup.data?.data ?? []).find(
+        (t: any) => t.slug === tag.slug && typeof t.id === "number"
+      );
+      if (existing) {
+        resolvedTagIds.push(existing.id);
+        setSteps((s) => {
+          const next = [...s.tags];
+          next[i] = { status: "ok", message: `existing id ${existing.id}` };
+          return { ...s, tags: next };
+        });
+        continue;
+      }
+
+      const created = await createTag(dpmUrl, {
+        slug: tag.slug,
+        label: tag.label || tag.slug,
+      });
+      if (!created.success) {
+        setSteps((s) => {
+          const next = [...s.tags];
+          next[i] = { status: "failed", message: `create failed: ${created.error}` };
+          return { ...s, tags: next };
+        });
+        setSubmitting(false);
+        return;
+      }
+      const newId =
+        typeof created.data?.id === "number"
+          ? created.data.id
+          : typeof created.data?.int_id === "number"
+          ? created.data.int_id
+          : typeof created.data?.intId === "number"
+          ? created.data.intId
+          : null;
+      if (newId === null) {
+        setSteps((s) => {
+          const next = [...s.tags];
+          next[i] = {
+            status: "failed",
+            message: "created but response missing integer id",
+            data: created.data,
+          };
+          return { ...s, tags: next };
+        });
+        setSubmitting(false);
+        return;
+      }
+      resolvedTagIds.push(newId);
+      setSteps((s) => {
+        const next = [...s.tags];
+        next[i] = { status: "ok", message: `created id ${newId}` };
+        return { ...s, tags: next };
+      });
+    }
+
+    // 3. Event
+    setSteps((s) => ({ ...s, event: { status: "running" } }));
+    const eventPayload = buildEventPayload(seriesExternalId, resolvedTagIds);
+    const eventRes = await createEvent(dpmUrl, eventPayload);
+    if (!eventRes.success) {
+      setSteps((s) => ({ ...s, event: { status: "failed", message: eventRes.error } }));
+      setSubmitting(false);
+      return;
+    }
+    const eventExternalId = eventRes.data?.external_id || eventRes.data?.id;
+    if (!eventExternalId) {
+      setSteps((s) => ({
+        ...s,
+        event: { status: "failed", message: "event created but response missing external_id", data: eventRes.data },
+      }));
+      setSubmitting(false);
+      return;
+    }
+    setSteps((s) => ({
+      ...s,
+      event: { status: "ok", message: `external_id: ${eventExternalId}`, data: eventRes.data },
+    }));
+
+    // 4. Markets
+    for (let i = 0; i < markets.length; i++) {
+      setSteps((s) => {
+        const next = [...s.markets];
+        next[i] = { status: "running" };
+        return { ...s, markets: next };
+      });
+      const payload = buildMarketPayload(markets[i], i, eventExternalId);
+      const res = await createMarket(dpmUrl, payload);
+      setSteps((s) => {
+        const next = [...s.markets];
+        next[i] = res.success
+          ? { status: "ok", data: res.data, message: "queued for deployment" }
+          : { status: "failed", message: res.error };
+        return { ...s, markets: next };
+      });
+      if (!res.success) {
+        // Continue to next market — partial failures are reported per-row,
+        // user can retry individual markets via the Events tab.
+      }
+    }
+
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card title="Create from Polymarket Slug">
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-500">
+            Paste a Polymarket slug (e.g. <span className="font-mono">starmer-out-in-2025</span>).
+            We fetch the gamma payload and use Gemini to map it to our Series/Event/Market shape.
+            Review &amp; edit below, then submit.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="polymarket-event-slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value.trim())}
+              className="h-9 font-mono text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && slug && !fetching) handleAdapt();
+              }}
+            />
+            <Button onClick={handleAdapt} disabled={!slug || fetching}>
+              {fetching ? "Fetching…" : "Fetch & Adapt"}
+            </Button>
+          </div>
+          {fetchError && <ErrorBox error={fetchError} />}
+          <p className="text-[10px] text-zinc-400">
+            Gamma source: <span className="font-mono">https://gamma-api.polymarket.com/events/slug/&lt;slug&gt;</span>
+            {" · "}
+            Writes go to DPM API at <span className="font-mono">{dpmUrl}</span>
+            {" · "}
+            Read URL: <span className="font-mono">{gammaUrl}</span>
+          </p>
+        </div>
+      </Card>
+
+      {event && (
+        <>
+          {/* Series */}
+          <Card
+            title="Series (optional)"
+            actions={
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={includeSeries}
+                  onChange={(e) => setIncludeSeries(e.target.checked)}
+                />
+                Include series in this submission
+              </label>
+            }
+          >
+            {includeSeries ? (
+              <SeriesEditor
+                value={
+                  series ?? {
+                    slug: "",
+                    title: "",
+                    active: true,
+                    closed: false,
+                    archived: false,
+                    restricted: false,
+                    featured: false,
+                    new: false,
+                    requires_translation: false,
+                  }
+                }
+                metadataDraft={metadataDrafts.series}
+                onMetadataDraftChange={(v) => setMetadataDrafts((d) => ({ ...d, series: v }))}
+                onChange={(patch) => {
+                  if (!series) {
+                    setSeries({
+                      slug: "",
+                      title: "",
+                      active: true,
+                      closed: false,
+                      archived: false,
+                      restricted: false,
+                      featured: false,
+                      new: false,
+                      requires_translation: false,
+                      ...patch,
+                    });
+                  } else {
+                    updateSeries(patch);
+                  }
+                }}
+              />
+            ) : (
+              <p className="text-xs text-zinc-500">
+                No series will be created. Toggle the checkbox above if this Polymarket payload
+                belongs to a parent series.
+              </p>
+            )}
+          </Card>
+
+          {/* Event */}
+          <Card title="Event">
+            <EventEditor
+              value={event}
+              metadataDraft={metadataDrafts.event}
+              onMetadataDraftChange={(v) => setMetadataDrafts((d) => ({ ...d, event: v }))}
+              onChange={updateEvent}
+            />
+          </Card>
+
+          {/* Tags */}
+          <Card
+            title={`Tags (${tags.length})`}
+            actions={
+              <Button variant="outline" size="sm" onClick={addTag}>
+                + Add Tag
+              </Button>
+            }
+          >
+            <div className="space-y-2">
+              <p className="text-[10px] text-zinc-500">
+                Each tag is upserted by slug: if a tag with the same slug already exists in gamma,
+                it&apos;s reused; otherwise it&apos;s created. Resolved tag ids are attached to the
+                event via <span className="font-mono">tag_ids</span>.
+              </p>
+              {tags.length === 0 ? (
+                <p className="py-4 text-center text-sm text-zinc-400">
+                  No tags. Click &quot;+ Add Tag&quot; to attach one.
+                </p>
+              ) : (
+                tags.map((t, i) => (
+                  <div key={i} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Label className="text-xs font-medium">
+                        Slug <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        value={t.slug}
+                        onChange={(e) => updateTag(i, { slug: e.target.value.trim() })}
+                        placeholder="politics"
+                        className="mt-1 h-8 font-mono text-xs"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs font-medium">Label</Label>
+                      <Input
+                        value={t.label}
+                        onChange={(e) => updateTag(i, { label: e.target.value })}
+                        placeholder="Politics"
+                        className="mt-1 h-8 text-xs"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeTag(i)}
+                      className="h-8 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+
+          {/* Markets */}
+          <Card
+            title={`Markets (${markets.length})`}
+            actions={
+              <Button variant="outline" size="sm" onClick={addMarket}>
+                + Add Market
+              </Button>
+            }
+          >
+            <div className="space-y-4">
+              {markets.length === 0 ? (
+                <p className="py-6 text-center text-sm text-zinc-400">
+                  No markets. Click &quot;+ Add Market&quot; to add one.
+                </p>
+              ) : (
+                markets.map((m, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Market #{i + 1}</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeMarket(i)}
+                        className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <MarketEditor
+                      value={m}
+                      metadataDraft={metadataDrafts.markets[i] || ""}
+                      onMetadataDraftChange={(v) =>
+                        setMetadataDrafts((d) => {
+                          const next = [...d.markets];
+                          next[i] = v;
+                          return { ...d, markets: next };
+                        })
+                      }
+                      onChange={(patch) => updateMarket(i, patch)}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+
+          {/* Submit */}
+          <Card title="Submit">
+            <div className="space-y-3">
+              <p className="text-xs text-zinc-500">
+                The submit runs sequentially: {includeSeries ? "Series → " : ""}Event → Markets
+                (one by one). Failures on later steps do not roll back earlier ones — use the
+                Events tab to fix or retry individual rows.
+              </p>
+              <Button
+                onClick={handleCreateAll}
+                disabled={submitting || !event.slug || !event.title}
+                className="w-full"
+              >
+                {submitting ? "Creating…" : "Create All"}
+              </Button>
+
+              {(steps.series.status !== "idle" ||
+                steps.event.status !== "idle" ||
+                steps.markets.some((s) => s.status !== "idle") ||
+                steps.tags.some((s) => s.status !== "idle")) && (
+                <div className="space-y-2 rounded-md border border-zinc-200 p-3 text-xs dark:border-zinc-800">
+                  <div className="flex items-center justify-between">
+                    <span>Series</span>
+                    <div className="flex items-center gap-2">
+                      {steps.series.message && (
+                        <span className="font-mono text-[10px] text-zinc-500">
+                          {steps.series.message}
+                        </span>
+                      )}
+                      <StepBadge status={steps.series.status} />
+                    </div>
+                  </div>
+                  {steps.tags.map((s, i) => (
+                    <div key={`tag-${i}`} className="flex items-center justify-between">
+                      <span>
+                        Tag #{i + 1} <span className="font-mono text-zinc-400">{tags[i]?.slug}</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {s.message && (
+                          <span className="font-mono text-[10px] text-zinc-500">{s.message}</span>
+                        )}
+                        <StepBadge status={s.status} />
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between">
+                    <span>Event</span>
+                    <div className="flex items-center gap-2">
+                      {steps.event.message && (
+                        <span className="font-mono text-[10px] text-zinc-500">
+                          {steps.event.message}
+                        </span>
+                      )}
+                      <StepBadge status={steps.event.status} />
+                    </div>
+                  </div>
+                  {steps.markets.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <span>Market #{i + 1}</span>
+                      <div className="flex items-center gap-2">
+                        {s.message && (
+                          <span className="font-mono text-[10px] text-zinc-500">{s.message}</span>
+                        )}
+                        <StepBadge status={s.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- Editors -----------------------------------------------------------------
+
+function BoolSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <Label className="text-xs font-medium">{label}</Label>
+      <select
+        value={value ? "true" : "false"}
+        onChange={(e) => onChange(e.target.value === "true")}
+        className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    </div>
+  );
+}
+
+function SeriesEditor({
+  value,
+  metadataDraft,
+  onMetadataDraftChange,
+  onChange,
+}: {
+  value: AdaptedSeries;
+  metadataDraft: string;
+  onMetadataDraftChange: (v: string) => void;
+  onChange: (patch: Partial<AdaptedSeries>) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Slug <span className="text-red-500">*</span></Label>
+          <Input value={value.slug} onChange={(e) => onChange({ slug: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Title <span className="text-red-500">*</span></Label>
+          <Input value={value.title} onChange={(e) => onChange({ title: e.target.value })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Ticker</Label>
+          <Input value={value.ticker || ""} onChange={(e) => onChange({ ticker: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Description</Label>
+        <textarea
+          value={value.description || ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+          rows={2}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Icon URL</Label>
+          <Input value={value.icon || ""} onChange={(e) => onChange({ icon: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Series Type</Label>
+          <Input value={value.series_type || ""} onChange={(e) => onChange({ series_type: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Recurrence</Label>
+          <Input value={value.recurrence || ""} onChange={(e) => onChange({ recurrence: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        <BoolSelect label="Active" value={value.active} onChange={(v) => onChange({ active: v })} />
+        <BoolSelect label="Closed" value={value.closed} onChange={(v) => onChange({ closed: v })} />
+        <BoolSelect label="Archived" value={value.archived} onChange={(v) => onChange({ archived: v })} />
+        <BoolSelect label="Restricted" value={value.restricted} onChange={(v) => onChange({ restricted: v })} />
+        <BoolSelect label="Featured" value={value.featured} onChange={(v) => onChange({ featured: v })} />
+        <BoolSelect label="New" value={value.new} onChange={(v) => onChange({ new: v })} />
+        <BoolSelect label="i18n" value={value.requires_translation} onChange={(v) => onChange({ requires_translation: v })} />
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Metadata Type</Label>
+        <Input value={value.metadata_type || ""} onChange={(e) => onChange({ metadata_type: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Metadata (JSON)</Label>
+        <textarea
+          value={metadataDraft}
+          onChange={(e) => onMetadataDraftChange(e.target.value)}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs"
+        />
+        <MetadataHint value={metadataDraft} />
+      </div>
+    </div>
+  );
+}
+
+function EventEditor({
+  value,
+  metadataDraft,
+  onMetadataDraftChange,
+  onChange,
+}: {
+  value: AdaptedEvent;
+  metadataDraft: string;
+  onMetadataDraftChange: (v: string) => void;
+  onChange: (patch: Partial<AdaptedEvent>) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Slug <span className="text-red-500">*</span></Label>
+          <Input value={value.slug} onChange={(e) => onChange({ slug: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Ticker</Label>
+          <Input value={value.ticker || ""} onChange={(e) => onChange({ ticker: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Title <span className="text-red-500">*</span></Label>
+        <Input value={value.title} onChange={(e) => onChange({ title: e.target.value })} className="mt-1 h-8 text-xs" />
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Description</Label>
+        <textarea
+          value={value.description || ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Resolution Source</Label>
+          <Input value={value.resolution_source || ""} onChange={(e) => onChange({ resolution_source: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Icon URL</Label>
+          <Input value={value.icon || ""} onChange={(e) => onChange({ icon: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Start Date</Label>
+          <Input
+            type="datetime-local"
+            value={isoToLocalInput(value.start_date)}
+            onChange={(e) => onChange({ start_date: e.target.value })}
+            className="mt-1 h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">End Date</Label>
+          <Input
+            type="datetime-local"
+            value={isoToLocalInput(value.end_date)}
+            onChange={(e) => onChange({ end_date: e.target.value })}
+            className="mt-1 h-8 text-xs"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+        <BoolSelect label="Active" value={value.active} onChange={(v) => onChange({ active: v })} />
+        <BoolSelect label="Closed" value={value.closed} onChange={(v) => onChange({ closed: v })} />
+        <BoolSelect label="Archived" value={value.archived} onChange={(v) => onChange({ archived: v })} />
+        <BoolSelect label="Restricted" value={value.restricted} onChange={(v) => onChange({ restricted: v })} />
+        <BoolSelect label="Neg Risk" value={value.neg_risk} onChange={(v) => onChange({ neg_risk: v })} />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Deployment Status</Label>
+          <select
+            value={value.deployment_status}
+            onChange={(e) => onChange({ deployment_status: e.target.value as AdaptedEvent["deployment_status"] })}
+            className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="PENDING">PENDING</option>
+            <option value="DEPLOYING">DEPLOYING</option>
+            <option value="DEPLOYED">DEPLOYED</option>
+          </select>
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Neg Risk Market ID</Label>
+          <Input value={value.neg_risk_market_id || ""} onChange={(e) => onChange({ neg_risk_market_id: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Metadata Type</Label>
+          <Input value={value.metadata_type || ""} onChange={(e) => onChange({ metadata_type: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Metadata (JSON)</Label>
+        <textarea
+          value={metadataDraft}
+          onChange={(e) => onMetadataDraftChange(e.target.value)}
+          rows={4}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs"
+        />
+        <MetadataHint value={metadataDraft} />
+      </div>
+    </div>
+  );
+}
+
+function MarketEditor({
+  value,
+  metadataDraft,
+  onMetadataDraftChange,
+  onChange,
+}: {
+  value: AdaptedMarket;
+  metadataDraft: string;
+  onMetadataDraftChange: (v: string) => void;
+  onChange: (patch: Partial<AdaptedMarket>) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label className="text-xs font-medium">Question <span className="text-red-500">*</span></Label>
+        <Input value={value.question} onChange={(e) => onChange({ question: e.target.value })} className="mt-1 h-8 text-xs" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Slug</Label>
+          <Input value={value.slug || ""} onChange={(e) => onChange({ slug: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Resolution Source</Label>
+          <Input value={value.resolution_source || ""} onChange={(e) => onChange({ resolution_source: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Description</Label>
+        <textarea
+          value={value.description || ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+          rows={2}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Start Date</Label>
+          <Input
+            type="datetime-local"
+            value={isoToLocalInput(value.start_date)}
+            onChange={(e) => onChange({ start_date: e.target.value })}
+            className="mt-1 h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">End Date</Label>
+          <Input
+            type="datetime-local"
+            value={isoToLocalInput(value.end_date)}
+            onChange={(e) => onChange({ end_date: e.target.value })}
+            className="mt-1 h-8 text-xs"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <BoolSelect label="Active" value={value.active} onChange={(v) => onChange({ active: v })} />
+        <BoolSelect label="Closed" value={value.closed} onChange={(v) => onChange({ closed: v })} />
+        <BoolSelect label="Archived" value={value.archived} onChange={(v) => onChange({ archived: v })} />
+        <BoolSelect label="Restricted" value={value.restricted} onChange={(v) => onChange({ restricted: v })} />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <BoolSelect label="Accepting Orders" value={value.accepting_orders} onChange={(v) => onChange({ accepting_orders: v })} />
+        <BoolSelect label="Funded" value={value.funded} onChange={(v) => onChange({ funded: v })} />
+        <BoolSelect label="Approved" value={value.approved} onChange={(v) => onChange({ approved: v })} />
+        <BoolSelect label="RFQ Enabled" value={value.rfq_enabled} onChange={(v) => onChange({ rfq_enabled: v })} />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Activation</Label>
+          <select
+            value={value.activation}
+            onChange={(e) => onChange({ activation: e.target.value as AdaptedMarket["activation"] })}
+            className="mt-1 h-8 w-full rounded-md border border-zinc-200 bg-white px-2 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="AUTO">AUTO</option>
+            <option value="MANUAL">MANUAL</option>
+          </select>
+        </div>
+        <BoolSelect label="Auto Active" value={value.automatically_active} onChange={(v) => onChange({ automatically_active: v })} />
+        <BoolSelect label="Clear Book on Start" value={value.clear_book_on_start} onChange={(v) => onChange({ clear_book_on_start: v })} />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <BoolSelect label="Neg Risk" value={value.neg_risk} onChange={(v) => onChange({ neg_risk: v })} />
+        <div>
+          <Label className="text-xs font-medium">Neg Risk Market ID</Label>
+          <Input value={value.neg_risk_market_id || ""} onChange={(e) => onChange({ neg_risk_market_id: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Neg Risk Request ID</Label>
+          <Input value={value.neg_risk_request_id || ""} onChange={(e) => onChange({ neg_risk_request_id: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+        <BoolSelect label="Neg Risk Other" value={value.neg_risk_other} onChange={(v) => onChange({ neg_risk_other: v })} />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <div>
+          <Label className="text-xs font-medium">Min Tick Size</Label>
+          <Input
+            value={value.order_price_min_tick_size?.toString() ?? ""}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              onChange({ order_price_min_tick_size: v === "" ? undefined : parseFloat(v) });
+            }}
+            className="mt-1 h-8 font-mono text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Min Order Size</Label>
+          <Input
+            value={value.order_min_size?.toString() ?? ""}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              onChange({ order_min_size: v === "" ? undefined : parseInt(v, 10) });
+            }}
+            className="mt-1 h-8 font-mono text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">UMA Bond</Label>
+          <Input value={value.uma_bond || ""} onChange={(e) => onChange({ uma_bond: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">UMA Reward</Label>
+          <Input value={value.uma_reward || ""} onChange={(e) => onChange({ uma_reward: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs font-medium">Liveness (s)</Label>
+          <Input value={value.liveness || ""} onChange={(e) => onChange({ liveness: e.target.value.trim() })} className="mt-1 h-8 font-mono text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">UMA Resolution Status</Label>
+          <Input value={value.uma_resolution_status || ""} onChange={(e) => onChange({ uma_resolution_status: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs font-medium">Metadata Type</Label>
+          <Input value={value.metadata_type || ""} onChange={(e) => onChange({ metadata_type: e.target.value.trim() })} className="mt-1 h-8 text-xs" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs font-medium">Metadata (JSON)</Label>
+        <textarea
+          value={metadataDraft}
+          onChange={(e) => onMetadataDraftChange(e.target.value)}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs"
+        />
+        <MetadataHint value={metadataDraft} />
+      </div>
+    </div>
+  );
+}
+
 function SeriesTab({ gammaUrl, dpmUrl }: { gammaUrl: string; dpmUrl: string }) {
   const [series, setSeries] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -4965,6 +6209,7 @@ export default function AdminPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "events", label: "Events" },
+    { key: "create-from-slug", label: "Create from Slug" },
     { key: "relayer-wallets", label: "Relayer Wallets" },
     { key: "builders", label: "Builders" },
     { key: "smart-account", label: "Smart Account" },
@@ -5036,6 +6281,7 @@ export default function AdminPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-4xl">
           <div className={activeTab === "events" ? "" : "hidden"}><EventsTab gammaUrl={gammaUrl} dpmUrl={dpmUrl} /></div>
+          <div className={activeTab === "create-from-slug" ? "" : "hidden"}><CreateFromSlugTab gammaUrl={gammaUrl} dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "relayer-wallets" ? "" : "hidden"}><RelayerWalletsTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "builders" ? "" : "hidden"}><BuildersTab dpmUrl={dpmUrl} /></div>
           <div className={activeTab === "smart-account" ? "" : "hidden"}><SmartAccountTab dpmUrl={dpmUrl} /></div>

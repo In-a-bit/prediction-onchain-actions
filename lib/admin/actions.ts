@@ -171,6 +171,108 @@ export async function listRelayerWallets(
   }
 }
 
+/** AssetBalance mirrors the Go AssetBalance struct. */
+export type AssetBalance = {
+  symbol: string;
+  contract_address?: string;
+  decimals: number;
+  balance_raw: string;
+  balance_normalized: string;
+  max_withdrawable_raw: string;
+};
+
+export type WalletBalances = {
+  wallet_id: number;
+  address: string;
+  chain_id: string;
+  pol: AssetBalance;
+  collateral: AssetBalance;
+  gas: {
+    pol_transfer_gas_limit: number;
+    max_fee_per_gas: string;
+    max_priority_fee_per_gas: string;
+    pol_gas_reservation_wei: string;
+  };
+};
+
+/** GET /relayer-wallets/:id/balances — POL + collateral balances + max-withdraw math. */
+export async function getRelayerWalletBalances(
+  dpmUrl: string,
+  id: number
+): Promise<{ success: true; data: WalletBalances } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/${id}/balances`, { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg = data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to fetch wallet balances" };
+  }
+}
+
+export type WithdrawAsset = "POL" | "COLLATERAL";
+
+export type WithdrawResult = {
+  tx_hash: string;
+  nonce: number;
+  status: "PENDING" | "MINED" | "REVERTED";
+  block_number?: string;
+  amount_raw: string;
+};
+
+/** POST /relayer-wallets/:id/withdraw — sends POL or collateral to a destination.
+ * Wallet must be is_active=false. Use max=true to let the server net gas. */
+export async function withdrawFromRelayerWallet(
+  dpmUrl: string,
+  id: number,
+  payload: { asset: WithdrawAsset; to: string; amount_raw?: string; max?: boolean }
+): Promise<{ success: true; data: WithdrawResult } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/${id}/withdraw`, {
+      method: "POST",
+      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg = data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to withdraw from relayer wallet" };
+  }
+}
+
+/** POST /relayer-wallets/:id/deactivate — sets is_active=false so the wallet is no
+ * longer picked up by the auto-fund scheduler or operational pool. The encrypted
+ * private key is preserved. */
+export async function deactivateRelayerWallet(
+  dpmUrl: string,
+  id: number
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  try {
+    const res = await fetch(`${dpmUrl}/relayer-wallets/${id}/deactivate`, {
+      method: "POST",
+      headers: dpmPostHeaders(),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const errMsg =
+        data?.error || data?.message || JSON.stringify(data) || `Status ${res.status}`;
+      return { success: false, error: errMsg };
+    }
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to deactivate relayer wallet" };
+  }
+}
+
 export async function createRelayerWallet(
   dpmUrl: string,
   payload: { private_key: string; wallet_type: string; label?: string }

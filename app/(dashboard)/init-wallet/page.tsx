@@ -6,12 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  deactivateRelayerWallet,
   getMnemonicStatus,
   initRelayerWallet,
   listRelayerWallets,
   type InitRelayerWalletResponse,
   type WalletType,
 } from "@/lib/admin/actions";
+import { RelayerWalletWithdrawDialog } from "@/components/admin/relayer-wallet-withdraw";
 
 const DEFAULT_DPM_URL = "http://localhost:8086";
 const PAGE_SIZE = 10;
@@ -145,6 +147,23 @@ export default function InitWalletPage() {
   function handleSearch() {
     setPage(0);
     fetchWallets(0);
+  }
+
+  const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
+  const [withdrawWallet, setWithdrawWallet] = useState<any | null>(null);
+
+  async function handleDeactivate(w: any) {
+    if (!confirm(`Deactivate wallet ${w.address}?\nIt will no longer be auto-funded or picked up for relaying.`)) {
+      return;
+    }
+    setDeactivatingId(w.id);
+    const res = await deactivateRelayerWallet(dpmUrl, w.id);
+    setDeactivatingId(null);
+    if (res.success) {
+      fetchWallets(page);
+    } else {
+      setListError(res.error);
+    }
   }
 
   async function handleSubmit() {
@@ -387,6 +406,9 @@ export default function InitWalletPage() {
                   <th className="px-3 py-2 font-medium text-zinc-500">
                     Created
                   </th>
+                  <th className="px-3 py-2 font-medium text-zinc-500">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -443,6 +465,36 @@ export default function InitWalletPage() {
                         ? new Date(w.created_at).toLocaleDateString()
                         : "-"}
                     </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        {w.is_active ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
+                            disabled={deactivatingId === w.id}
+                            onClick={() => handleDeactivate(w)}
+                          >
+                            {deactivatingId === w.id ? "…" : "Deactivate"}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-zinc-400">inactive</span>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => setWithdrawWallet(w)}
+                          title={
+                            w.is_active
+                              ? "Deactivate first — manual withdraws race the relayer pool"
+                              : "Withdraw POL or USDC.e from this wallet"
+                          }
+                        >
+                          Withdraw
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -477,6 +529,18 @@ export default function InitWalletPage() {
           </div>
         )}
       </section>
+
+      <RelayerWalletWithdrawDialog
+        dpmUrl={dpmUrl}
+        walletId={withdrawWallet?.id ?? null}
+        walletAddress={withdrawWallet?.address}
+        isActive={!!withdrawWallet?.is_active}
+        open={withdrawWallet != null}
+        onOpenChange={(o) => {
+          if (!o) setWithdrawWallet(null);
+        }}
+        onWithdrawSuccess={() => fetchWallets(page)}
+      />
     </div>
   );
 }
