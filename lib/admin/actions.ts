@@ -239,7 +239,7 @@ export async function withdrawFromRelayerWallet(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets/${id}/withdraw`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -264,7 +264,7 @@ export async function deactivateRelayerWallet(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets/${id}/deactivate`, {
       method: "POST",
-      headers: dpmPostHeaders(),
+      headers: dpmAdminHeaders(),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -1367,7 +1367,7 @@ export async function initMnemonic(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets/mnemonic/init`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
@@ -1410,7 +1410,7 @@ export async function initRelayerWallet(
   try {
     const res = await fetch(`${dpmUrl}/relayer-wallets/init`, {
       method: "POST",
-      headers: dpmPostHeaders({ "Content-Type": "application/json" }),
+      headers: dpmAdminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
       cache: "no-store",
     });
