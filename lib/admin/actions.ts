@@ -7,7 +7,7 @@ export async function searchEvents(
   params: Record<string, string>
 ): Promise<{ success: true; data: any[] } | { success: false; error: string }> {
   try {
-    const url = new URL("/events/pagination", gammaUrl);
+    const url = new URL("/events", gammaUrl);
     for (const [key, value] of Object.entries(params)) {
       if (value !== "" && value !== undefined) {
         url.searchParams.set(key, value);
@@ -754,7 +754,7 @@ export async function listTags(
   params: { limit?: string; offset?: string; search?: string }
 ): Promise<{ success: true; data: { data: any[]; total: number } } | { success: false; error: string }> {
   try {
-    const url = new URL("/tags/pagination", gammaUrl);
+    const url = new URL("/tags", gammaUrl);
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== "") {
         url.searchParams.set(key, value);
@@ -826,7 +826,7 @@ export async function listSeries(
   | { success: false; error: string }
 > {
   try {
-    const url = new URL("/series/pagination", gammaUrl);
+    const url = new URL("/series", gammaUrl);
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== "") {
         url.searchParams.set(key, value);
