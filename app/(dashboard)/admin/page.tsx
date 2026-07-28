@@ -19,6 +19,7 @@ import {
   umaResolveManually,
   umaDispute,
   umaPushPrice,
+  umaExternalPropose,
   listRelayerWallets,
   createRelayerWallet,
   deactivateRelayerWallet,
@@ -268,6 +269,45 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+// gamma-api's /events endpoint has no text-search query param (unlike /tags,
+// which supports `search=`), so matching by title/slug/ID has to happen
+// client-side. A single 20-row page is too small a pool to search over, so
+// when a query is present we page through the backend ourselves — up to
+// EVENTS_SEARCH_MAX_PAGES pages of EVENTS_SEARCH_PAGE_LIMIT (the backend's
+// max page size) — and filter the combined result set.
+const EVENTS_SEARCH_PAGE_LIMIT = 100;
+const EVENTS_SEARCH_MAX_PAGES = 5;
+
+function eventMatchesQuery(event: any, query: string): boolean {
+  const title = (event.title || "").toLowerCase();
+  const slug = (event.slug || "").toLowerCase();
+  const id = (event.id || "").toLowerCase();
+  return title.includes(query) || slug.includes(query) || id.includes(query);
+}
+
+async function searchEventsAcrossPages(
+  gammaUrl: string,
+  baseParams: Record<string, string>,
+  query: string
+): Promise<{ success: true; data: any[] } | { success: false; error: string }> {
+  const q = query.toLowerCase();
+  const matches: any[] = [];
+
+  for (let page = 0; page < EVENTS_SEARCH_MAX_PAGES; page++) {
+    const res = await searchEvents(gammaUrl, {
+      ...baseParams,
+      limit: String(EVENTS_SEARCH_PAGE_LIMIT),
+      offset: String(page * EVENTS_SEARCH_PAGE_LIMIT),
+    });
+    if (!res.success) return res;
+
+    matches.push(...res.data.filter((e: any) => eventMatchesQuery(e, q)));
+    if (res.data.length < EVENTS_SEARCH_PAGE_LIMIT) break; // reached the last page
+  }
+
+  return { success: true, data: matches };
+}
+
 function EventsTab({
   gammaUrl,
   dpmUrl,
@@ -311,29 +351,23 @@ function EventsTab({
     async (pageNum: number) => {
       setLoading(true);
       setError(null);
-      const params: Record<string, string> = {
-        limit: String(PAGE_SIZE),
-        offset: String(pageNum * PAGE_SIZE),
-      };
-      if (filterActive) params.active = filterActive;
-      if (filterClosed) params.closed = filterClosed;
-      if (filterArchived) params.archived = filterArchived;
 
-      const res = await searchEvents(gammaUrl, params);
-      if (res.success) {
-        let data = res.data;
-        // Client-side text filter (gamma-api may not support text search)
-        if (debouncedSearch) {
-          const q = debouncedSearch.toLowerCase();
-          data = data.filter((e: any) => {
-            const title = (e.title || "").toLowerCase();
-            const slug = (e.slug || "").toLowerCase();
-            const id = (e.id || "").toLowerCase();
-            return title.includes(q) || slug.includes(q) || id.includes(q);
+      const filterParams: Record<string, string> = {};
+      if (filterActive) filterParams.active = filterActive;
+      if (filterClosed) filterParams.closed = filterClosed;
+      if (filterArchived) filterParams.archived = filterArchived;
+
+      const res = debouncedSearch
+        ? await searchEventsAcrossPages(gammaUrl, filterParams, debouncedSearch)
+        : await searchEvents(gammaUrl, {
+            ...filterParams,
+            limit: String(PAGE_SIZE),
+            offset: String(pageNum * PAGE_SIZE),
           });
-        }
-        setResults(data);
-        setTotal(data.length);
+
+      if (res.success) {
+        setResults(res.data);
+        setTotal(res.data.length);
       } else {
         setError(res.error);
         setResults([]);
@@ -696,6 +730,12 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   const [disputeError, setDisputeError] = useState<string | null>(null);
   const [disputeResult, setDisputeResult] = useState<any | null>(null);
 
+  const [showExternalPropose, setShowExternalPropose] = useState(false);
+  const [externalProposeForm, setExternalProposeForm] = useState({ proposerPrivateKey: "", proposedPrice: "" });
+  const [externalProposeLoading, setExternalProposeLoading] = useState(false);
+  const [externalProposeError, setExternalProposeError] = useState<string | null>(null);
+  const [externalProposeResult, setExternalProposeResult] = useState<any | null>(null);
+
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetResult, setResetResult] = useState<any | null>(null);
@@ -781,6 +821,28 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
 
     setDisputeResult(res);
     setDisputeLoading(false);
+  }
+
+  async function handleExternalPropose() {
+    if (!questionId) {
+      setExternalProposeError("Market has no question_id — cannot propose");
+      return;
+    }
+    setExternalProposeLoading(true);
+    setExternalProposeError(null);
+    setExternalProposeResult(null);
+
+    const res = await umaExternalPropose(
+      questionId,
+      externalProposeForm.proposedPrice,
+      externalProposeForm.proposerPrivateKey
+    );
+    if (res.success) {
+      setExternalProposeResult(res);
+    } else {
+      setExternalProposeError(res.error);
+    }
+    setExternalProposeLoading(false);
   }
 
   async function handleReset() {
@@ -870,6 +932,8 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
   }
 
   const canPropose = proposeForm.proposer_address && proposeForm.proposed_price && !proposeLoading;
+  const canExternalPropose =
+    externalProposeForm.proposerPrivateKey.trim() && externalProposeForm.proposedPrice && !externalProposeLoading;
 
   return (
     <div className="rounded border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-950">
@@ -1006,6 +1070,20 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             <Button
               variant="outline"
               size="sm"
+              className="h-7 px-3 text-[11px] border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950"
+              onClick={() => {
+                setShowExternalPropose((s) => !s);
+                setExternalProposeError(null);
+                setExternalProposeResult(null);
+              }}
+              disabled={!questionId}
+              title="Simulate a non-operator party proposing directly on the UMA Optimistic Oracle (bypasses dpm-api entirely)"
+            >
+              {showExternalPropose ? "Cancel" : "External Propose"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="h-7 px-3 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950"
               onClick={handleReset}
               disabled={resetLoading}
@@ -1084,6 +1162,72 @@ function MarketCard({ market: m, dpmUrl }: { market: any; dpmUrl: string }) {
             <SuccessBox>
               <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
                 Dispute TX: {disputeResult.txHash}
+              </p>
+            </SuccessBox>
+          )}
+        </div>
+      )}
+
+      {showExternalPropose && (
+        <div className="mt-3 space-y-3 rounded-md border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+          <p className="text-[11px] font-medium text-sky-700 dark:text-sky-400">
+            Simulate an external proposal directly on UMA Optimistic Oracle
+          </p>
+          <p className="text-[10px] text-sky-600/70 dark:text-sky-400/70">
+            Sends <code className="rounded bg-sky-100 px-1 dark:bg-sky-900/50">proposePrice(...)</code> straight to
+            the chain, signed by the private key below — not via dpm-api. Use this to test what happens when a
+            non-operator party proposes a price (the backoffice&apos;s external-proposal dispute-watch). The
+            proposer&apos;s wallet needs enough of the bond currency and native gas; the bond is auto-approved to
+            the oracle if its allowance is insufficient.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[11px] font-medium">
+                Proposer Private Key <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="password"
+                placeholder="0x..."
+                value={externalProposeForm.proposerPrivateKey}
+                onChange={(e) =>
+                  setExternalProposeForm((f) => ({ ...f, proposerPrivateKey: e.target.value.trim() }))
+                }
+                className="mt-1 h-7 font-mono text-[11px]"
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] font-medium">
+                Proposed Price <span className="text-red-500">*</span>
+              </Label>
+              <select
+                value={externalProposeForm.proposedPrice}
+                onChange={(e) => setExternalProposeForm((f) => ({ ...f, proposedPrice: e.target.value }))}
+                className="mt-1 h-7 w-full rounded-md border border-zinc-200 bg-white px-2 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="">Select...</option>
+                {UMA_PRICE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="h-7 w-full bg-sky-600 text-[11px] text-white hover:bg-sky-700"
+            onClick={handleExternalPropose}
+            disabled={!canExternalPropose}
+          >
+            {externalProposeLoading ? "Submitting..." : "Submit External Proposal"}
+          </Button>
+          {externalProposeError && <ErrorBox error={externalProposeError} />}
+          {externalProposeResult && (
+            <SuccessBox>
+              <p className="text-[11px] font-medium text-green-800 dark:text-green-200">
+                Proposal TX: {externalProposeResult.txHash}
+                <br />
+                Proposer: {externalProposeResult.proposerAddress}
               </p>
             </SuccessBox>
           )}

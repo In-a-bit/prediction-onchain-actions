@@ -517,6 +517,49 @@ export async function umaResolveManually(
   }
 }
 
+// UMA's identifier for binary YES/NO price requests — shared by every direct
+// on-chain UMA action below (dispute, push-price, external-propose).
+const YES_OR_NO_IDENTIFIER = "0x5945535f4f525f4e4f5f51554552590000000000000000000000000000000000";
+
+// The adapter stores question IDs as bytes32; operators paste them with or
+// without the 0x prefix, so normalize + left-pad before any on-chain call.
+function formatQuestionId(
+  questionId: string,
+  zeroPadValue: (value: string, width: number) => string
+): { value: string } | { error: string } {
+  try {
+    const stripped = questionId.startsWith("0x") ? questionId : `0x${questionId}`;
+    return { value: zeroPadValue(stripped, 32) };
+  } catch {
+    return { error: `Invalid question ID format: "${questionId}". Expected a hex bytes32 value.` };
+  }
+}
+
+// Every direct on-chain UMA action starts from the same adapter-side lookup:
+// the ancillary data + request timestamp the oracle keys its request on.
+async function loadAdapterQuestion(
+  adapter: any,
+  formattedQuestionId: string
+): Promise<{ requestTimestamp: bigint; ancillaryData: string } | { error: string }> {
+  const questionData = await adapter.questions(formattedQuestionId);
+  const ancillaryData: string = questionData.ancillaryData;
+  if (!ancillaryData || ancillaryData === "0x") {
+    return { error: "Question not initialized on adapter (empty ancillary data)" };
+  }
+  return { requestTimestamp: questionData.requestTimestamp, ancillaryData };
+}
+
+// ethers' shortMessage/reason surfaces the most human-readable failure for a
+// reverted on-chain call; shared by every direct on-chain UMA action below.
+function extractOnchainErrorMessage(error: any): string {
+  if (error.shortMessage) {
+    return error.reason && error.reason !== "require(false)"
+      ? `${error.shortMessage} (${error.reason})`
+      : error.shortMessage;
+  }
+  return error.message || "Unknown error";
+}
+
 export async function umaPushPrice(
   questionId: string,
   price: string,
@@ -528,13 +571,9 @@ export async function umaPushPrice(
     const { contracts } = await import("@/lib/contracts/registry");
     const { Contract, JsonRpcProvider, Wallet, zeroPadValue } = await import("ethers");
 
-    let formattedQuestionId: string;
-    try {
-      const stripped = questionId.startsWith("0x") ? questionId : `0x${questionId}`;
-      formattedQuestionId = zeroPadValue(stripped, 32);
-    } catch {
-      return { success: false, error: `Invalid question ID format: "${questionId}". Expected a hex bytes32 value.` };
-    }
+    const formatted = formatQuestionId(questionId, zeroPadValue);
+    if ("error" in formatted) return { success: false, error: formatted.error };
+    const formattedQuestionId = formatted.value;
 
     if (!price || !/^-?\d+$/.test(price.trim())) {
       return { success: false, error: `Invalid price: "${price}". Expected an integer (wei).` };
@@ -551,20 +590,15 @@ export async function umaPushPrice(
     if (!adapterConfig) return { success: false, error: "UMA CTF Adapter not in registry" };
     const adapter = adapterConfig.factory.connect(adapterAddr, provider);
 
-    const questionData = await (adapter as any).questions(formattedQuestionId);
-    const requestTimestamp: bigint = questionData.requestTimestamp;
-    const ancillaryData: string = questionData.ancillaryData;
-    if (!ancillaryData || ancillaryData === "0x") {
-      return { success: false, error: "Question not initialized on adapter (empty ancillary data)" };
-    }
+    const question = await loadAdapterQuestion(adapter, formattedQuestionId);
+    if ("error" in question) return { success: false, error: question.error };
+    const { requestTimestamp, ancillaryData } = question;
 
     const ooAddr = process.env.MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS;
     if (!ooAddr) return { success: false, error: "MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS not configured" };
     const ooConfig = contracts["oracle"];
     if (!ooConfig) return { success: false, error: "Oracle not in registry" };
     const oo = ooConfig.factory.connect(ooAddr, provider);
-
-    const YES_OR_NO_IDENTIFIER = "0x5945535f4f525f4e4f5f51554552590000000000000000000000000000000000";
 
     const ooRequest = await (oo as any).getRequest(
       adapterAddr,
@@ -609,12 +643,7 @@ export async function umaPushPrice(
 
     return { success: true, txHash: receipt.hash };
   } catch (error: any) {
-    const msg = error.shortMessage
-      ? (error.reason && error.reason !== "require(false)"
-          ? `${error.shortMessage} (${error.reason})`
-          : error.shortMessage)
-      : error.message || "Unknown error";
-    return { success: false, error: msg };
+    return { success: false, error: extractOnchainErrorMessage(error) };
   }
 }
 
@@ -629,13 +658,9 @@ export async function umaDispute(
     const { contracts } = await import("@/lib/contracts/registry");
     const { JsonRpcProvider, Wallet, zeroPadValue, isAddress } = await import("ethers");
 
-    let formattedQuestionId: string;
-    try {
-      const stripped = questionId.startsWith("0x") ? questionId : `0x${questionId}`;
-      formattedQuestionId = zeroPadValue(stripped, 32);
-    } catch {
-      return { success: false, error: `Invalid question ID format: "${questionId}". Expected a hex bytes32 value.` };
-    }
+    const formatted = formatQuestionId(questionId, zeroPadValue);
+    if ("error" in formatted) return { success: false, error: formatted.error };
+    const formattedQuestionId = formatted.value;
 
     const rpcUrl = process.env.RPC_URL;
     if (!rpcUrl) return { success: false, error: "RPC_URL not configured" };
@@ -648,12 +673,9 @@ export async function umaDispute(
     if (!adapterConfig) return { success: false, error: "UMA CTF Adapter not in registry" };
     const adapter = adapterConfig.factory.connect(adapterAddr, provider);
 
-    const questionData = await (adapter as any).questions(formattedQuestionId);
-    const requestTimestamp = questionData.requestTimestamp;
-    const ancillaryData = questionData.ancillaryData;
-    if (!ancillaryData || ancillaryData === "0x") {
-      return { success: false, error: "Question not initialized on adapter (empty ancillary data)" };
-    }
+    const question = await loadAdapterQuestion(adapter, formattedQuestionId);
+    if ("error" in question) return { success: false, error: question.error };
+    const { requestTimestamp, ancillaryData } = question;
 
     const oracleAddr = process.env.MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS;
     if (!oracleAddr) return { success: false, error: "Oracle address not configured" };
@@ -664,8 +686,6 @@ export async function umaDispute(
     const oracleConfig = contracts["oracle"];
     if (!oracleConfig) return { success: false, error: "Oracle not in registry" };
     const oracle = oracleConfig.factory.connect(oracleAddr, signer);
-
-    const YES_OR_NO_IDENTIFIER = "0x5945535f4f525f4e4f5f51554552590000000000000000000000000000000000";
 
     let disputerAddr: string;
     if (disputerAddress && disputerAddress.trim() !== "") {
@@ -688,13 +708,123 @@ export async function umaDispute(
 
     return { success: true, txHash: receipt.hash };
   } catch (error: any) {
-    const msg = error.shortMessage
-      ? (error.reason && error.reason !== "require(false)"
-          ? `${error.shortMessage} (${error.reason})`
-          : error.shortMessage)
-      : error.message || "Unknown error";
-    return { success: false, error: msg };
+    return { success: false, error: extractOnchainErrorMessage(error) };
   }
+}
+
+// Simulates a non-operator ("external") party proposing a price for a
+// question directly on the UMA Optimistic Oracle — i.e. the scenario the
+// backoffice's external-proposal dispute-watch exists to detect, without
+// going through dpm-api's own propose flow at all. The caller supplies the
+// external party's own private key (distinct from our admin wallets) so the
+// tx is genuinely sent by an outside address, exactly like a real external
+// proposer would send it.
+export async function umaExternalPropose(
+  questionId: string,
+  price: string,
+  proposerPrivateKey: string,
+): Promise<
+  | { success: true; txHash: string; proposerAddress: string }
+  | { success: false; error: string }
+> {
+  try {
+    const { contracts } = await import("@/lib/contracts/registry");
+    const { JsonRpcProvider, Wallet, zeroPadValue } = await import("ethers");
+
+    const formatted = formatQuestionId(questionId, zeroPadValue);
+    if ("error" in formatted) return { success: false, error: formatted.error };
+    const formattedQuestionId = formatted.value;
+
+    if (!price || !/^-?\d+$/.test(price.trim())) {
+      return { success: false, error: `Invalid price: "${price}". Expected an integer (wei).` };
+    }
+    const priceInt = BigInt(price.trim());
+
+    if (!proposerPrivateKey || proposerPrivateKey.trim() === "") {
+      return { success: false, error: "Proposer private key is required to sign an external proposal" };
+    }
+
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) return { success: false, error: "RPC_URL not configured" };
+    const provider = new JsonRpcProvider(rpcUrl);
+
+    const adapterAddr = process.env.UMA_CTF_ADAPTER_ADDRESS;
+    if (!adapterAddr) return { success: false, error: "UMA_CTF_ADAPTER_ADDRESS not configured" };
+    const adapterConfig = contracts["uma-ctf-adapter"];
+    if (!adapterConfig) return { success: false, error: "UMA CTF Adapter not in registry" };
+    const adapter = adapterConfig.factory.connect(adapterAddr, provider);
+
+    const question = await loadAdapterQuestion(adapter, formattedQuestionId);
+    if ("error" in question) return { success: false, error: question.error };
+    const { requestTimestamp, ancillaryData } = question;
+
+    const oracleAddr = process.env.MANAGED_OPTIMISTIC_ORACLE_PROXY_ADDRESS;
+    if (!oracleAddr) return { success: false, error: "Oracle address not configured" };
+    const oracleConfig = contracts["oracle"];
+    if (!oracleConfig) return { success: false, error: "Oracle not in registry" };
+
+    let proposer: any;
+    try {
+      proposer = new Wallet(proposerPrivateKey.trim(), provider);
+    } catch {
+      return { success: false, error: "Invalid proposer private key" };
+    }
+
+    await ensureProposerBondApproved(oracleConfig.factory.connect(oracleAddr, provider), {
+      oracleAddr,
+      adapterAddr,
+      requestTimestamp,
+      ancillaryData,
+      proposer,
+    });
+
+    const oracle = oracleConfig.factory.connect(oracleAddr, proposer);
+    const tx = await (oracle as any).proposePrice(
+      adapterAddr,
+      YES_OR_NO_IDENTIFIER,
+      requestTimestamp,
+      ancillaryData,
+      priceInt,
+    );
+    const receipt = await tx.wait();
+
+    return { success: true, txHash: receipt.hash, proposerAddress: await proposer.getAddress() };
+  } catch (error: any) {
+    return { success: false, error: extractOnchainErrorMessage(error) };
+  }
+}
+
+// UMA's OptimisticOracle pulls (bond + finalFee) from the proposer via
+// transferFrom on proposePrice, so an external proposer's wallet — which has
+// never dealt with this oracle before — needs to approve it first if its
+// current allowance is insufficient.
+async function ensureProposerBondApproved(
+  oracleReadOnly: any,
+  params: {
+    oracleAddr: string;
+    adapterAddr: string;
+    requestTimestamp: bigint;
+    ancillaryData: string;
+    proposer: any; // ethers Wallet, connected to the provider
+  }
+): Promise<void> {
+  const { oracleAddr, adapterAddr, requestTimestamp, ancillaryData, proposer } = params;
+  const request = await oracleReadOnly.getRequest(adapterAddr, YES_OR_NO_IDENTIFIER, requestTimestamp, ancillaryData);
+  const totalBond: bigint = request.requestSettings.bond + request.finalFee;
+  if (totalBond === BigInt(0)) return;
+
+  const { Contract } = await import("ethers");
+  const erc20Abi = [
+    "function allowance(address owner, address spender) view returns (uint256)",
+    "function approve(address spender, uint256 amount) returns (bool)",
+  ];
+  const currency = new Contract(request.currency, erc20Abi, proposer);
+  const proposerAddr = await proposer.getAddress();
+  const allowance: bigint = await currency.allowance(proposerAddr, oracleAddr);
+  if (allowance >= totalBond) return;
+
+  const approveTx = await currency.approve(oracleAddr, totalBond);
+  await approveTx.wait();
 }
 
 // --- Contracts ---
