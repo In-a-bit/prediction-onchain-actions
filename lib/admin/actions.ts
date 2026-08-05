@@ -685,7 +685,6 @@ export async function umaDispute(
     const signer = new Wallet(privateKey, provider);
     const oracleConfig = contracts["oracle"];
     if (!oracleConfig) return { success: false, error: "Oracle not in registry" };
-    const oracle = oracleConfig.factory.connect(oracleAddr, signer);
 
     let disputerAddr: string;
     if (disputerAddress && disputerAddress.trim() !== "") {
@@ -697,6 +696,17 @@ export async function umaDispute(
       disputerAddr = await signer.getAddress();
     }
 
+    // disputePriceFor pulls the bond from msg.sender (this signer), not from
+    // disputerAddr — see ensureBondApproved's doc comment.
+    await ensureBondApproved(oracleConfig.factory.connect(oracleAddr, provider), {
+      oracleAddr,
+      adapterAddr,
+      requestTimestamp,
+      ancillaryData,
+      signer,
+    });
+
+    const oracle = oracleConfig.factory.connect(oracleAddr, signer);
     const tx = await (oracle as any).disputePriceFor(
       disputerAddr,
       adapterAddr,
@@ -770,12 +780,12 @@ export async function umaExternalPropose(
       return { success: false, error: "Invalid proposer private key" };
     }
 
-    await ensureProposerBondApproved(oracleConfig.factory.connect(oracleAddr, provider), {
+    await ensureBondApproved(oracleConfig.factory.connect(oracleAddr, provider), {
       oracleAddr,
       adapterAddr,
       requestTimestamp,
       ancillaryData,
-      proposer,
+      signer: proposer,
     });
 
     const oracle = oracleConfig.factory.connect(oracleAddr, proposer);
@@ -794,21 +804,23 @@ export async function umaExternalPropose(
   }
 }
 
-// UMA's OptimisticOracle pulls (bond + finalFee) from the proposer via
-// transferFrom on proposePrice, so an external proposer's wallet — which has
-// never dealt with this oracle before — needs to approve it first if its
-// current allowance is insufficient.
-async function ensureProposerBondApproved(
+// UMA's OptimisticOracle pulls (bond + finalFee) from msg.sender on both
+// proposePrice and disputePriceFor (the latter's "disputer" argument only
+// controls who is credited as the disputer — the contract's own doc comment
+// notes "any bonds are pulled from the caller"). Any wallet that hasn't
+// dealt with this oracle before needs to approve it first if its current
+// allowance is insufficient.
+async function ensureBondApproved(
   oracleReadOnly: any,
   params: {
     oracleAddr: string;
     adapterAddr: string;
     requestTimestamp: bigint;
     ancillaryData: string;
-    proposer: any; // ethers Wallet, connected to the provider
+    signer: any; // ethers Wallet, connected to the provider — will send the tx
   }
 ): Promise<void> {
-  const { oracleAddr, adapterAddr, requestTimestamp, ancillaryData, proposer } = params;
+  const { oracleAddr, adapterAddr, requestTimestamp, ancillaryData, signer } = params;
   const request = await oracleReadOnly.getRequest(adapterAddr, YES_OR_NO_IDENTIFIER, requestTimestamp, ancillaryData);
   const totalBond: bigint = request.requestSettings.bond + request.finalFee;
   if (totalBond === BigInt(0)) return;
@@ -818,9 +830,9 @@ async function ensureProposerBondApproved(
     "function allowance(address owner, address spender) view returns (uint256)",
     "function approve(address spender, uint256 amount) returns (bool)",
   ];
-  const currency = new Contract(request.currency, erc20Abi, proposer);
-  const proposerAddr = await proposer.getAddress();
-  const allowance: bigint = await currency.allowance(proposerAddr, oracleAddr);
+  const currency = new Contract(request.currency, erc20Abi, signer);
+  const signerAddr = await signer.getAddress();
+  const allowance: bigint = await currency.allowance(signerAddr, oracleAddr);
   if (allowance >= totalBond) return;
 
   const approveTx = await currency.approve(oracleAddr, totalBond);
